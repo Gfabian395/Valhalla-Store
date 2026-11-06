@@ -9,7 +9,7 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
-  const [estadoComercio, setEstadoComercio] = useState(''); // Para saber si está pendiente o activo
+  const [estadoComercio, setEstadoComercio] = useState('');
   
   const [paso, setPaso] = useState('form');
   
@@ -38,12 +38,11 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
             localStorage.setItem('valhalla_store_id', storeDoc.id);
             localStorage.setItem('valhalla_comercio', JSON.stringify(data));
             
-            // Verificamos si el comercio está activo mediante el campo booleano 'activo' (o estado)
             if (data.activo === true) {
-              setIsOpen(false); // Si está activo (true), lo deja pasar al panel
+              setIsOpen(false);
             } else {
               setEstadoComercio('pendiente_pago');
-              setIsOpen(true); // Si es falso o no está, mantiene bloqueado el panel
+              setIsOpen(true);
             }
           } else {
             localStorage.removeItem('valhalla_store_id');
@@ -87,15 +86,20 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
 
   const seleccionarPlanYEnviarWhatsApp = async (planElegido) => {
     try {
-      const storeId = comercio.nombreComercio.trim().toLowerCase().replace(/\s+/g, '_');
+      // 🟢 Ahora usamos el UID del usuario autenticado como ID del documento en Firestore
+      const storeId = user.uid;
       
+      const rawNumber = comercio.whatsapp.replace(/\D/g, '');
+      const formattedWhatsapp = rawNumber.startsWith('549') ? `+${rawNumber}` : rawNumber.startsWith('54') ? `+549${rawNumber.slice(2)}` : `+549${rawNumber}`;
+
       const comercioData = {
         ...comercio,
+        whatsapp: formattedWhatsapp,
         plan: planElegido.id,
         ownerUid: user.uid,
         ownerEmail: user.email,
         estado: 'pendiente_pago', 
-        activo: false, // 🔴 Se crea en falso hasta que vos lo pongas en true en Firebase
+        activo: false,
         createdAt: new Date().toISOString()
       };
 
@@ -106,15 +110,19 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
 
       const tuNumeroWhatsApp = "5491159781434"; 
 
-      let mensaje = `Hola, soy la empresa *${comercio.nombreComercio}* (${user.email}). `;
-      mensaje += `Quiero registrar mi comercio con el *${planElegido.nombre}* (${planElegido.precio}). `;
-      mensaje += `Dirección: ${comercio.direccionComercio}. WhatsApp de contacto: ${comercio.whatsapp}. ¿Cómo procedemos con el pago?`;
+      let mensaje = `🚨 *NUEVO REGISTRO - VALHALLA EXPRESS*\n\n`;
+      mensaje += `🏪 *Local:* ${comercio.nombreComercio}\n`;
+      mensaje += `📦 *Plan Solicitado:* ${planElegido.id}\n`;
+      mensaje += `📍 *Dirección:* ${comercio.direccionComercio}\n`;
+      mensaje += `📱 *WhatsApp:* ${formattedWhatsapp}\n`;
+      mensaje += `🔑 *UID:* ${user.uid}\n\n`;
+      mensaje += `Solicito activación de cuenta.`;
 
       const urlWhatsApp = `https://wa.me/${tuNumeroWhatsApp}?text=${encodeURIComponent(mensaje)}`;
       window.open(urlWhatsApp, '_blank');
 
       setEstadoComercio('pendiente_pago');
-      setIsOpen(true); // Muestra la pantalla de espera de pago
+      setIsOpen(true);
     } catch (error) {
       console.error("Error al registrar el comercio en Firestore:", error);
       alert("Hubo un error al registrar el comercio en la base de datos.");
@@ -164,7 +172,6 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
             </button>
           </div>
         ) : estadoComercio === 'pendiente_pago' ? (
-          // PANTALLA DE BLOQUEO HASTA QUE CAMBIES 'activo' A true EN FIREBASE
           <div className="text-center py-6">
             <div className="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-500/30 shadow-inner">
               <i className='bx bx-time-five text-3xl animate-spin'></i>
@@ -176,11 +183,11 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
               Esperando Confirmación de Pago
             </h2>
             <p className="text-xs text-slate-400 mt-2 mb-6 leading-relaxed">
-              Tu tienda ya fue registrada y elegiste tu plan. Una vez que acredites el pago con el administrador, tu cuenta será habilitada (activo: true) para gestionar categorías y productos.
+              Tu tienda ya fue registrada y elegiste tu plan. Una vez que acredites el pago con el administrador, tu cuenta será habilitada para gestionar categorías y productos.
             </p>
             <div className="bg-slate-800/80 p-4 rounded-2xl border border-slate-700 text-left text-xs space-y-1 mb-6">
               <p className="text-slate-400">Cuenta: <span className="text-white font-bold">{user.email}</span></p>
-              <p className="text-slate-400">Estado: <span className="text-amber-400 font-bold">Pendiente de habilitación (activo: false)</span></p>
+              <p className="text-slate-400">Estado: <span className="text-amber-400 font-bold">Pendiente de habilitación</span></p>
             </div>
             <button
               onClick={() => window.location.reload()}
@@ -230,14 +237,21 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
 
               <div>
                 <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-400">WhatsApp para Pedidos</label>
-                <input
-                  type="text"
-                  required
-                  value={comercio.whatsapp}
-                  onChange={(e) => setComercio({...comercio, whatsapp: e.target.value})}
-                  placeholder="5491159781434"
-                  className="w-full bg-slate-800/80 border border-slate-700 rounded-2xl px-4 py-3 text-sm text-white font-normal placeholder-slate-500 focus:border-yellow-400 outline-none transition-all"
-                />
+                <div className="flex items-center bg-slate-800/80 border border-slate-700 rounded-2xl overflow-hidden focus-within:border-yellow-400 transition-all">
+                  <span className="pl-4 pr-2 text-sm text-yellow-400 font-mono select-none">+549</span>
+                  <input
+                    type="text"
+                    required
+                    value={comercio.whatsapp}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '');
+                      setComercio({...comercio, whatsapp: val});
+                    }}
+                    placeholder="1159781434"
+                    className="w-full bg-transparent border-none px-2 py-3 text-sm text-white font-normal placeholder-slate-500 outline-none"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-500 mt-1 block">Ingresá tu número sin el +549 (ej: 1159781434)</span>
               </div>
 
               <button 
