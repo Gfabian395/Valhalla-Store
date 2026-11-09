@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useCart } from '../../context/CartContext';
 
-export const Navbar = ({ vistaAdmin, setVistaAdmin }) => {
+export const Navbar = ({ vistaAdmin, setVistaAdmin, onLogout }) => {
   const { totalItems } = useCart();
 
   const alternarVista = () => {
@@ -26,11 +26,11 @@ export const Navbar = ({ vistaAdmin, setVistaAdmin }) => {
           </div>
         </Link>
 
-        {/* Acciones de Navegación y Carrito */}
+        {/* Acciones de Navegación, Carrito y Sesión */}
         <div className="flex items-center gap-2 md:gap-3">
           <button
             onClick={alternarVista}
-            className={`px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow ${
+            className={`px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow cursor-pointer ${
               vistaAdmin 
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400' 
                 : 'bg-slate-800 hover:bg-slate-700 border border-yellow-400/50 text-yellow-400'
@@ -45,6 +45,18 @@ export const Navbar = ({ vistaAdmin, setVistaAdmin }) => {
               <i className='bx bx-cart text-yellow-400 text-lg md:text-xl'></i>
               <span className="text-[11px] md:text-xs font-bold">{totalItems} ítems</span>
             </div>
+          )}
+
+          {/* Botón de Cerrar Sesión (Siempre visible en el Navbar) */}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition cursor-pointer"
+              title="Cerrar Sesión"
+            >
+              <i className='bx bx-log-out text-base'></i>
+              <span className="hidden sm:inline">Salir</span>
+            </button>
           )}
         </div>
       </div>

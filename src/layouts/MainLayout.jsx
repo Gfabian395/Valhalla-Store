@@ -5,7 +5,7 @@ import { CartDrawer } from '../components/store/CartDrawer';
 import { CheckoutModal } from '../components/modals/CheckoutModal';
 import { StoreSetupModal } from '../components/modals/StoreSetupModal';
 
-export const MainLayout = ({ children, vistaAdmin, setVistaAdmin }) => {
+export const MainLayout = ({ children, vistaAdmin, setVistaAdmin, onLogout }) => {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   return (
@@ -13,7 +13,11 @@ export const MainLayout = ({ children, vistaAdmin, setVistaAdmin }) => {
       {/* Modal encargado del flujo de autenticación, datos del comercio y planes */}
       <StoreSetupModal />
 
-      <Navbar vistaAdmin={vistaAdmin} setVistaAdmin={setVistaAdmin} />
+      <Navbar 
+        vistaAdmin={vistaAdmin} 
+        setVistaAdmin={setVistaAdmin} 
+        onLogout={onLogout} 
+      />
       
       <main className="grow w-full">
         {children}

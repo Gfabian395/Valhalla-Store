@@ -2,13 +2,14 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
+// Configuración de Valhalla Store leyendo de las variables de entorno (.env)
 const firebaseConfig = {
-  apiKey: "AIzaSyDpPrbA0EIYesjtjA-_lglN5CURR-w5FJA",
-  authDomain: "valhalla-store-ff5f0.firebaseapp.com",
-  projectId: "valhalla-store-ff5f0",
-  storageBucket: "valhalla-store-ff5f0.firebasestorage.app",
-  messagingSenderId: "165476949219",
-  appId: "1:165476949219:web:ad67e6c13df7840091b9d6"
+  apiKey: import.meta.env.VITE_FIREBASE_STORE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_STORE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_STORE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_STORE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_STORE_APP_ID
 };
 
 const app = initializeApp(firebaseConfig);
