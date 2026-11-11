@@ -15,7 +15,7 @@ export const CartDrawer = ({ onOpenCheckout }) => {
 
       <button
         onClick={onOpenCheckout}
-        className="bg-green-600 hover:bg-green-700 text-white font-black px-4 md:px-5 py-2.5 md:py-3 rounded-2xl shadow-lg flex items-center gap-2 uppercase tracking-wide text-xs md:text-sm transition-all transform active:scale-95"
+        className="bg-green-600 hover:bg-green-700 text-white font-black px-4 md:px-5 py-2.5 md:py-3 rounded-2xl shadow-lg flex items-center gap-2 uppercase tracking-wide text-xs md:text-sm transition-all transform active:scale-95 cursor-pointer"
       >
         <i className='bx bxl-whatsapp text-lg md:text-xl'></i> Enviar Pedido
       </button>

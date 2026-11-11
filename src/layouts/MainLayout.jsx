@@ -11,7 +11,12 @@ export const MainLayout = ({ children, vistaAdmin, setVistaAdmin, onLogout }) =>
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col justify-between font-sans">
       {/* Modal encargado del flujo de autenticación, datos del comercio y planes */}
-      <StoreSetupModal />
+      <StoreSetupModal 
+        onStoreRegistered={() => {
+          // Opcional: recarga o actualiza estados globales si se requiere al registrarse con éxito
+          console.log("[MainLayout] Comercio registrado y activo exitosamente.");
+        }} 
+      />
 
       <Navbar 
         vistaAdmin={vistaAdmin} 
@@ -23,6 +28,7 @@ export const MainLayout = ({ children, vistaAdmin, setVistaAdmin, onLogout }) =>
         {children}
       </main>
 
+      {/* El carrito flotante solo se muestra si NO está en vista de administración */}
       {!vistaAdmin && <CartDrawer onOpenCheckout={() => setIsCheckoutOpen(true)} />}
       
       <CheckoutModal 

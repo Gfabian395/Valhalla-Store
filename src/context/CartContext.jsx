@@ -40,7 +40,12 @@ export const CartProvider = ({ children }) => {
   const clearCart = () => setCart([]);
 
   const totalItems = cart.reduce((acc, item) => acc + item.quantity, 0);
-  const totalPrice = cart.reduce((acc, item) => acc + item.precioOferta * item.quantity, 0);
+  
+  // 🔴 CORREGIDO: Soporte seguro por si el producto usa 'precioOferta' o 'precio'
+  const totalPrice = cart.reduce((acc, item) => {
+    const precioUnitario = Number(item.precioOferta !== undefined ? item.precioOferta : (item.precio || 0));
+    return acc + precioUnitario * item.quantity;
+  }, 0);
 
   return (
     <CartContext.Provider

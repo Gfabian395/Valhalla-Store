@@ -41,7 +41,7 @@ export const ProductCard = ({ product }) => {
         {quantity === 0 ? (
           <button
             onClick={() => addToCart(product)}
-            className="w-full bg-yellow-400 hover:bg-yellow-500 text-slate-900 font-black text-xs py-2 px-3 rounded-xl shadow uppercase flex items-center justify-center gap-1 transition-colors"
+            className="w-full bg-yellow-400 hover:bg-yellow-500 text-slate-900 font-black text-xs py-2 px-3 rounded-xl shadow uppercase flex items-center justify-center gap-1 transition-colors cursor-pointer"
           >
             <i className='bx bx-cart-add text-base'></i> Agregar
           </button>
@@ -49,14 +49,14 @@ export const ProductCard = ({ product }) => {
           <div className="flex items-center justify-between bg-slate-100 dark:bg-slate-800 rounded-xl p-1 border border-slate-200 dark:border-slate-700">
             <button
               onClick={() => updateQuantity(product.id, -1)}
-              className="bg-red-600 hover:bg-red-700 text-white font-bold w-7 h-7 rounded-lg flex items-center justify-center shadow"
+              className="bg-red-600 hover:bg-red-700 text-white font-bold w-7 h-7 rounded-lg flex items-center justify-center shadow cursor-pointer"
             >
               -
             </button>
             <span className="font-black text-sm text-slate-800 dark:text-slate-100">{quantity}</span>
             <button
               onClick={() => updateQuantity(product.id, 1)}
-              className="bg-green-600 hover:bg-green-700 text-white font-bold w-7 h-7 rounded-lg flex items-center justify-center shadow"
+              className="bg-green-600 hover:bg-green-700 text-white font-bold w-7 h-7 rounded-lg flex items-center justify-center shadow cursor-pointer"
             >
               +
             </button>

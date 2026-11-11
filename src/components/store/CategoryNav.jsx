@@ -7,7 +7,7 @@ export const CategoryNav = ({ categorias, categoriaSeleccionada, onSelectCategor
         <button
           key={cat}
           onClick={() => onSelectCategoria(cat)}
-          className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all shadow-sm ${
+          className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all shadow-sm cursor-pointer ${
             categoriaSeleccionada === cat
               ? 'bg-slate-900 text-yellow-400 border-2 border-yellow-400 shadow-md'
               : 'bg-white/80 backdrop-blur-md text-slate-700 border-2 border-slate-200 hover:border-slate-400'

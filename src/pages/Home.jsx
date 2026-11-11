@@ -127,6 +127,9 @@ export const Home = ({ vistaAdmin }) => {
     ? productos 
     : productos.filter(p => p.categoria?.trim().toLowerCase() === filtroCat.trim().toLowerCase());
 
+  // 🔴 Soporte seguro para el nombre del comercio (lee 'name' unificado o 'nombreComercio' viejo)
+  const nombreComercioMostrar = comercioGuardado.name || comercioGuardado.nombreComercio || 'Mi Tienda';
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
       <FlyerHeader />
@@ -144,7 +147,7 @@ export const Home = ({ vistaAdmin }) => {
         <div className="bg-slate-900 border-2 border-yellow-400 rounded-3xl p-5 mb-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 text-white">
           <div>
             <span className="text-[10px] text-yellow-400 font-black uppercase tracking-widest block bg-yellow-400/10 px-2 py-0.5 rounded-full w-fit mb-1">
-              Panel Exclusivo Multi-Comercio ({comercioGuardado.nombreComercio || 'Mi Tienda'})
+              Panel Exclusivo Multi-Comercio ({nombreComercioMostrar})
             </span>
             <h2 className="text-base md:text-lg font-black">Gestión de Catálogo ({filtroCat})</h2>
           </div>

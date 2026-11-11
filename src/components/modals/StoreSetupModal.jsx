@@ -1,25 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../../services/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
 import { PlanSelectionModal } from './PlanSelectionModal';
+
+// 🔴 TUS NÚMEROS Y CONFIGURACIONES DE ADMINISTRADOR
+const ADMIN_WHATSAPP_NUMBER = '5491159781434';
 
 export const StoreSetupModal = ({ onStoreRegistered }) => {
   const [user, setUser] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
-  const [estadoComercio, setEstadoComercio] = useState('');
   
   const [paso, setPaso] = useState('form');
+  const [isPendingActivation, setIsPendingActivation] = useState(false);
   
-  const [comercio, setComercio] = useState({
-    nombreComercio: '',
-    direccionComercio: '',
-    whatsapp: '',
-    instagram: '',
-    facebook: '',
-    tiktok: ''
+  const [businessData, setBusinessData] = useState({
+    workshopName: '',
+    ownerName: '',
+    phone: '',
+    address: '',
   });
 
   useEffect(() => {
@@ -28,25 +29,42 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
         setUser(currentUser);
         
         try {
-          // Lectura directa del documento usando el UID del usuario como ID en la colección 'comercios'
           const storeDocRef = doc(db, 'comercios', currentUser.uid);
           const storeSnap = await getDoc(storeDocRef);
           
           if (storeSnap.exists()) {
             const data = storeSnap.data();
             
+            // Guardamos el estado fresco en localStorage
             localStorage.setItem('valhalla_store_id', storeSnap.id);
             localStorage.setItem('valhalla_comercio', JSON.stringify(data));
+
+            const isConfigured = Boolean(
+              data.workshopConfigured && (data.name || data.workshopName)
+            );
             
-            if (data.activo === true) {
+            // 🔴 COMPATIBILIDAD CON RAGNAROK: Acepta tanto 'status' como 'activo' en true
+            const isActive = data.status === true || data.activo === true;
+            
+            if (isConfigured && isActive) {
+              setIsPendingActivation(false);
               setIsOpen(false);
+              if (onStoreRegistered) onStoreRegistered();
             } else {
-              setEstadoComercio('pendiente_pago');
+              // Si está configurado pero aún no fue activado por Ragnarok
+              setIsPendingActivation(true);
               setIsOpen(true);
             }
           } else {
             localStorage.removeItem('valhalla_store_id');
             localStorage.removeItem('valhalla_comercio');
+            setBusinessData({
+              workshopName: '',
+              ownerName: currentUser.displayName || '',
+              phone: '',
+              address: '',
+            });
+            setIsPendingActivation(false);
             setIsOpen(true);
           }
         } catch (error) {
@@ -55,6 +73,7 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
         }
       } else {
         setUser(null);
+        setIsPendingActivation(false);
         setIsOpen(true);
       }
       setLoading(false);
@@ -65,13 +84,17 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [onStoreRegistered]);
 
   const handleLoginGoogle = async () => {
     setAuthError('');
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
     try {
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      if (result.user && !businessData.ownerName) {
+        setBusinessData(prev => ({ ...prev, ownerName: result.user.displayName || '' }));
+      }
     } catch (error) {
       console.error("Error al iniciar sesión con Google:", error);
       setAuthError(`Error al iniciar sesión: ${error.message}`);
@@ -80,7 +103,7 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
 
   const handleSiguienteAPlanes = (e) => {
     e.preventDefault();
-    if (!comercio.nombreComercio.trim()) return;
+    if (!businessData.workshopName.trim() || !businessData.ownerName.trim() || !businessData.phone.trim()) return;
     setPaso('planes');
   };
 
@@ -88,40 +111,52 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
     try {
       const storeId = user.uid;
       
-      const rawNumber = comercio.whatsapp.replace(/\D/g, '');
+      const planName = planElegido.nombre || planElegido.name || planElegido.id || 'Plan';
+      const planPrice = Number(planElegido.precio || planElegido.price || 0);
+      const planMaintenance = Number(planElegido.mantenimiento_mensual || 0);
+
+      const rawNumber = businessData.phone.replace(/\D/g, '');
       const formattedWhatsapp = rawNumber.startsWith('549') ? `+${rawNumber}` : rawNumber.startsWith('54') ? `+549${rawNumber.slice(2)}` : `+549${rawNumber}`;
 
       const comercioData = {
-        ...comercio,
-        whatsapp: formattedWhatsapp,
-        plan: planElegido.id,
         ownerUid: user.uid,
-        ownerEmail: user.email,
-        estado: 'pendiente_pago', 
-        activo: false,
-        createdAt: new Date().toISOString()
+        name: businessData.workshopName.trim(),
+        ownerName: businessData.ownerName.trim(),
+        ownerEmail: user.email || '',
+        phone: formattedWhatsapp,
+        address: businessData.address.trim(),
+        planId: planElegido.id,
+        planName: planName,
+        planPrice: planPrice,
+        planMaintenance: planMaintenance,
+        workshopConfigured: true,
+        status: false,
+        createdAt: serverTimestamp(),
       };
 
-      // Guardamos el documento en la colección 'comercios' usando el UID como ID
-      await setDoc(doc(db, 'comercios', storeId), comercioData);
+      await setDoc(doc(db, 'comercios', storeId), comercioData, { merge: true });
 
       localStorage.setItem('valhalla_store_id', storeId);
       localStorage.setItem('valhalla_comercio', JSON.stringify(comercioData));
 
-      const tuNumeroWhatsApp = "5491159781434"; 
+      const whatsappMessage = [
+        '🚨 *REGISTRO PENDIENTE DE PAGO - VALHALLA STORE*',
+        '',
+        `🏪 *Comercio:* ${comercioData.name}`,
+        `👤 *Titular:* ${comercioData.ownerName}`,
+        `📱 *WhatsApp Local:* ${comercioData.phone}`,
+        `💎 *Plan Elegido:* ${planName}`,
+        `💵 *Pago Único de Alta:* $${planPrice.toLocaleString('es-AR')}`,
+        `🔄 *Mantenimiento Mensual:* $${planMaintenance.toLocaleString('es-AR')}`,
+        `🆔 *ID Comercio:* ${user.uid}`,
+        '',
+        'El comercio ha completado su registro y aguarda validación para activar su cuenta.',
+      ].join('\n');
 
-      let mensaje = `🚨 *NUEVO REGISTRO - VALHALLA STORE*\n\n`;
-      mensaje += `🏪 *Local:* ${comercio.nombreComercio}\n`;
-      mensaje += `📦 *Plan Solicitado:* ${planElegido.id}\n`;
-      mensaje += `📍 *Dirección:* ${comercio.direccionComercio}\n`;
-      mensaje += `📱 *WhatsApp:* ${formattedWhatsapp}\n`;
-      mensaje += `🔑 *UID:* ${user.uid}\n\n`;
-      mensaje += `Solicito activación de cuenta.`;
+      const urlWhatsApp = `https://wa.me/${ADMIN_WHATSAPP_NUMBER}?text=${encodeURIComponent(whatsappMessage)}`;
+      window.open(urlWhatsApp, '_blank', 'noopener,noreferrer');
 
-      const urlWhatsApp = `https://wa.me/${tuNumeroWhatsApp}?text=${encodeURIComponent(mensaje)}`;
-      window.open(urlWhatsApp, '_blank');
-
-      setEstadoComercio('pendiente_pago');
+      setIsPendingActivation(true);
       setIsOpen(true);
     } catch (error) {
       console.error("Error al registrar el comercio en Firestore:", error);
@@ -171,7 +206,7 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
               <i className='bx bxl-google text-red-600 text-xl'></i> Continuar con Google
             </button>
           </div>
-        ) : estadoComercio === 'pendiente_pago' ? (
+        ) : isPendingActivation ? (
           <div className="text-center py-6">
             <div className="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-500/30 shadow-inner">
               <i className='bx bx-time-five text-3xl animate-spin'></i>
@@ -212,46 +247,65 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
 
             <form onSubmit={handleSiguienteAPlanes} className="space-y-3.5 text-xs font-bold text-slate-300">
               <div>
-                <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-400">Nombre de tu Comercio</label>
+                <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-400">
+                  Nombre del Comercio <span className="text-yellow-400">*</span>
+                </label>
                 <input
                   type="text"
                   required
-                  value={comercio.nombreComercio}
-                  onChange={(e) => setComercio({...comercio, nombreComercio: e.target.value})}
-                  placeholder="Distribuidora Diego"
+                  value={businessData.workshopName}
+                  onChange={(e) => setBusinessData({...businessData, workshopName: e.target.value})}
+                  placeholder="Ej. Valhalla Store"
                   className="w-full bg-slate-800/80 border border-slate-700 rounded-2xl px-4 py-3 text-sm text-white font-normal placeholder-slate-500 focus:border-yellow-400 outline-none transition-all"
                 />
               </div>
 
               <div>
-                <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-400">Dirección del Local</label>
+                <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-400">
+                  Nombre y Apellido del Titular <span className="text-yellow-400">*</span>
+                </label>
                 <input
                   type="text"
                   required
-                  value={comercio.direccionComercio}
-                  onChange={(e) => setComercio({...comercio, direccionComercio: e.target.value})}
-                  placeholder="Av. Calchaquí 4500"
+                  value={businessData.ownerName}
+                  onChange={(e) => setBusinessData({...businessData, ownerName: e.target.value})}
+                  placeholder="Ej. Fabián González"
                   className="w-full bg-slate-800/80 border border-slate-700 rounded-2xl px-4 py-3 text-sm text-white font-normal placeholder-slate-500 focus:border-yellow-400 outline-none transition-all"
                 />
               </div>
 
               <div>
-                <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-400">WhatsApp para Pedidos</label>
+                <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-400">
+                  WhatsApp del Comercio <span className="text-yellow-400">*</span>
+                </label>
                 <div className="flex items-center bg-slate-800/80 border border-slate-700 rounded-2xl overflow-hidden focus-within:border-yellow-400 transition-all">
                   <span className="pl-4 pr-2 text-sm text-yellow-400 font-mono select-none">+549</span>
                   <input
-                    type="text"
+                    type="tel"
                     required
-                    value={comercio.whatsapp}
+                    value={businessData.phone}
                     onChange={(e) => {
                       const val = e.target.value.replace(/\D/g, '');
-                      setComercio({...comercio, whatsapp: val});
+                      setBusinessData({...businessData, phone: val});
                     }}
                     placeholder="1159781434"
                     className="w-full bg-transparent border-none px-2 py-3 text-sm text-white font-normal placeholder-slate-500 outline-none"
                   />
                 </div>
                 <span className="text-[10px] text-slate-500 mt-1 block">Ingresá tu número sin el +549 (ej: 1159781434)</span>
+              </div>
+
+              <div>
+                <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-400">
+                  Dirección del Local <span className="text-slate-500 font-normal">(opcional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={businessData.address}
+                  onChange={(e) => setBusinessData({...businessData, address: e.target.value})}
+                  placeholder="Ej. Av. Calchaquí 1234, Quilmes"
+                  className="w-full bg-slate-800/80 border border-slate-700 rounded-2xl px-4 py-3 text-sm text-white font-normal placeholder-slate-500 focus:border-yellow-400 outline-none transition-all"
+                />
               </div>
 
               <button 

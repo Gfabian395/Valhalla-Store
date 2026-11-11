@@ -88,8 +88,9 @@ export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack }) => {
                     )}
                   </div>
 
-                  <p className="text-[11px] text-slate-400 mt-1.5">
-                    {plan.maximo_categorias !== undefined ? `${plan.maximo_categorias} Categorías` : 'Categorías ilimitadas'} • {plan.maximo_productos_por_categoria !== undefined ? `${plan.maximo_productos_por_categoria} Productos por categoría` : 'Productos ilimitados'}
+                  <p className="text-[11px] text-slate-400 mt-1.5 flex flex-wrap gap-x-2">
+                    <span>• {plan.maximo_categorias !== undefined ? `${plan.maximo_categorias} Categorías` : 'Categorías ilimitadas'}</span>
+                    <span>• {plan.maximo_productos_por_categoria !== undefined ? `${plan.maximo_productos_por_categoria} Prod. por categoría` : 'Productos ilimitados'}</span>
                   </p>
                 </div>
                 
