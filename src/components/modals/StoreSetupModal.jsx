@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../../services/firebase';
-import { collection, query, where, getDocs, doc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
 import { PlanSelectionModal } from './PlanSelectionModal';
 
@@ -28,14 +28,14 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
         setUser(currentUser);
         
         try {
-          const q = query(collection(db, 'comercios'), where('ownerUid', '==', currentUser.uid));
-          const querySnapshot = await getDocs(q);
+          // Lectura directa del documento usando el UID del usuario como ID en la colección 'comercios'
+          const storeDocRef = doc(db, 'comercios', currentUser.uid);
+          const storeSnap = await getDoc(storeDocRef);
           
-          if (!querySnapshot.empty) {
-            const storeDoc = querySnapshot.docs[0];
-            const data = storeDoc.data();
+          if (storeSnap.exists()) {
+            const data = storeSnap.data();
             
-            localStorage.setItem('valhalla_store_id', storeDoc.id);
+            localStorage.setItem('valhalla_store_id', storeSnap.id);
             localStorage.setItem('valhalla_comercio', JSON.stringify(data));
             
             if (data.activo === true) {
@@ -50,7 +50,7 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
             setIsOpen(true);
           }
         } catch (error) {
-          console.error("Error consultando comercios en Firestore:", error);
+          console.error("Error consultando comercio en Firestore:", error);
           setIsOpen(true);
         }
       } else {
@@ -86,7 +86,6 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
 
   const seleccionarPlanYEnviarWhatsApp = async (planElegido) => {
     try {
-      // 🟢 Ahora usamos el UID del usuario autenticado como ID del documento en Firestore
       const storeId = user.uid;
       
       const rawNumber = comercio.whatsapp.replace(/\D/g, '');
@@ -103,6 +102,7 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
         createdAt: new Date().toISOString()
       };
 
+      // Guardamos el documento en la colección 'comercios' usando el UID como ID
       await setDoc(doc(db, 'comercios', storeId), comercioData);
 
       localStorage.setItem('valhalla_store_id', storeId);
@@ -110,7 +110,7 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
 
       const tuNumeroWhatsApp = "5491159781434"; 
 
-      let mensaje = `🚨 *NUEVO REGISTRO - VALHALLA EXPRESS*\n\n`;
+      let mensaje = `🚨 *NUEVO REGISTRO - VALHALLA STORE*\n\n`;
       mensaje += `🏪 *Local:* ${comercio.nombreComercio}\n`;
       mensaje += `📦 *Plan Solicitado:* ${planElegido.id}\n`;
       mensaje += `📍 *Dirección:* ${comercio.direccionComercio}\n`;
@@ -125,7 +125,7 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
       setIsOpen(true);
     } catch (error) {
       console.error("Error al registrar el comercio en Firestore:", error);
-      alert("Hubo un error al registrar el comercio en la base de datos.");
+      alert(`Hubo un error al registrar el comercio: ${error.message}`);
     }
   };
 

@@ -1,16 +1,39 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 
 export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack }) => {
-  console.log("[PlanSelectionModal] Renderizando componente. isOpen:", isOpen);
-  
-  if (!isOpen) return null;
+  const [planes, setPlanes] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const planesDisponibles = [
-    { id: 'basico', nombre: 'Plan Básico', precio: '$20.000 /mes', desc: '5 Categorías • 10 Productos por categoría' },
-    { id: 'pro', nombre: 'Plan Pro', precio: '$30.000 /mes', desc: '10 Categorías • 15 Productos por categoría' },
-    { id: 'experto', nombre: 'Plan Experto', precio: '$50.000 /mes', desc: '30 Categorías • 50 Productos por categoría' },
-    { id: 'empresa', nombre: 'Plan Empresa (Ilimitado)', precio: '$100.000 /mes', desc: 'Categorías y Productos Ilimitados' }
-  ];
+  console.log("[PlanSelectionModal] Renderizando componente. isOpen:", isOpen);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const fetchPlanes = async () => {
+      try {
+        setLoading(true);
+        // Consultamos la colección store_planes en Firestore
+        const querySnapshot = await getDocs(collection(db, "store_planes"));
+        const planesList = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        console.log("[PlanSelectionModal] Planes obtenidos de Firestore:", planesList);
+        setPlanes(planesList);
+      } catch (error) {
+        console.error("[PlanSelectionModal] Error al obtener los planes:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPlanes();
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 transition-all duration-300">
@@ -28,28 +51,55 @@ export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack }) => {
           </p>
         </div>
 
-        <div className="space-y-3">
-          {planesDisponibles.map((plan) => (
-            <div 
-              key={plan.id}
-              onClick={() => {
-                console.log("[PlanSelectionModal] Clic en plan:", plan.id);
-                onSelectPlan(plan);
-              }}
-              className="bg-slate-800/80 hover:bg-slate-800 border-2 border-slate-700 hover:border-yellow-400 p-4 rounded-2xl cursor-pointer transition-all flex items-center justify-between gap-4 group"
-            >
-              <div>
-                <h3 className="text-sm font-black text-yellow-400 group-hover:text-white transition-colors">
-                  {plan.nombre} - <span className="text-white">{plan.precio}</span>
-                </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">{plan.desc}</p>
+        {loading ? (
+          <div className="py-12 text-center text-slate-400 text-sm">
+            Cargando planes desde la base de datos...
+          </div>
+        ) : planes.length === 0 ? (
+          <div className="py-12 text-center text-slate-400 text-sm">
+            No se encontraron planes configurados en la base de datos.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {planes.map((plan) => (
+              <div 
+                key={plan.id}
+                onClick={() => {
+                  console.log("[PlanSelectionModal] Clic en plan:", plan.id);
+                  onSelectPlan(plan);
+                }}
+                className="bg-slate-800/80 hover:bg-slate-800 border-2 border-slate-700 hover:border-yellow-400 p-4 rounded-2xl cursor-pointer transition-all flex items-center justify-between gap-4 group"
+              >
+                <div>
+                  <h3 className="text-sm font-black text-yellow-400 group-hover:text-white transition-colors">
+                    {plan.nombre || plan.id}
+                  </h3>
+                  
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
+                    {plan.precio !== undefined && (
+                      <span className="text-white font-bold bg-slate-700/70 px-2 py-0.5 rounded-md">
+                        Pago único: ${Number(plan.precio).toLocaleString()}
+                      </span>
+                    )}
+                    {plan.mantenimiento_mensual !== undefined && (
+                      <span className="text-yellow-300 font-bold bg-slate-700/70 px-2 py-0.5 rounded-md">
+                        Mantenimiento: ${Number(plan.mantenimiento_mensual).toLocaleString()} /mes
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-slate-400 mt-1.5">
+                    {plan.maximo_categorias !== undefined ? `${plan.maximo_categorias} Categorías` : 'Categorías ilimitadas'} • {plan.maximo_productos_por_categoria !== undefined ? `${plan.maximo_productos_por_categoria} Productos por categoría` : 'Productos ilimitados'}
+                  </p>
+                </div>
+                
+                <span className="bg-green-600 group-hover:bg-green-500 text-white p-2.5 rounded-xl text-xs font-black shrink-0 flex items-center gap-1 shadow">
+                  <i className='bx bxl-whatsapp text-lg'></i> Elegir
+                </span>
               </div>
-              <span className="bg-green-600 group-hover:bg-green-500 text-white p-2.5 rounded-xl text-xs font-black shrink-0 flex items-center gap-1 shadow">
-                <i className='bx bxl-whatsapp text-lg'></i> Elegir
-              </span>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         <button
           type="button"
