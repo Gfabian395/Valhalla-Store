@@ -4,6 +4,8 @@ import { db } from '../services/firebase';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { ProductCard } from '../components/store/ProductCard';
 import { CategoryNav } from '../components/store/CategoryNav';
+import { CartDrawer } from '../components/store/CartDrawer'; // 🟢 Carrito flotante inferior
+import { CheckoutModal } from '../components/modals/CheckoutModal'; // 🟢 Modal de envío a WhatsApp
 import { useCart } from '../context/CartContext';
 
 export const CatalogoPublico = () => {
@@ -17,6 +19,9 @@ export const CatalogoPublico = () => {
   const [filtroCat, setFiltroCat] = useState('Todos');
   const [errorTienda, setErrorTienda] = useState(false);
 
+  // 🟢 Estado para abrir y cerrar el modal de checkout (WhatsApp)
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+
   useEffect(() => {
     const fetchTiendaPublica = async () => {
       if (!storeId) {
@@ -29,7 +34,6 @@ export const CatalogoPublico = () => {
         setLoading(true);
 
         // 1. Buscamos los datos generales del comercio en la colección 'comercios'
-        // Nota: En tu estructura de Firebase, el documento del comercio es directamente el ID (ownerUid)
         const comercioDocRef = doc(db, 'comercios', storeId);
         const comercioSnap = await getDoc(comercioDocRef);
 
@@ -93,7 +97,7 @@ export const CatalogoPublico = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-12">
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-28">
       {/* Navbar Superior Público para el Cliente */}
       <header className="bg-white/95 backdrop-blur-md sticky top-0 z-40 shadow-xs border-b-2 border-emerald-500">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
@@ -110,7 +114,7 @@ export const CatalogoPublico = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+            <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-2xs">
               <i className='bx bx-cart text-emerald-700 text-xl'></i>
               <span className="text-xs font-black text-emerald-900">{totalItems} ítems</span>
             </div>
@@ -140,6 +144,15 @@ export const CatalogoPublico = () => {
           </div>
         )}
       </main>
+
+      {/* 🟢 CARRITO FLOTANTE CON EFECTO GLASS & BLUR */}
+      <CartDrawer onOpenCheckout={() => setIsCheckoutOpen(true)} />
+
+      {/* 🟢 MODAL DE CHECKOUT Y DATOS DE ENVÍO PARA WHATSAPP */}
+      <CheckoutModal 
+        isOpen={isCheckoutOpen} 
+        onClose={() => setIsCheckoutOpen(false)} 
+      />
     </div>
   );
 };

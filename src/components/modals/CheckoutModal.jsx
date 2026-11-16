@@ -6,42 +6,16 @@ export const CheckoutModal = ({ isOpen, onClose }) => {
   const [nombre, setNombre] = useState('');
   const [telefono, setTelefono] = useState('');
   const [direccion, setDireccion] = useState('');
-  const [ubicacionMaps, setUbicacionMaps] = useState('');
-  const [loadingLoc, setLoadingLoc] = useState(false);
 
   if (!isOpen) return null;
-
-  const obtenerUbicacion = () => {
-    setLoadingLoc(true);
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const lat = position.coords.latitude;
-          const lng = position.coords.longitude;
-          const linkMaps = `https://maps.google.com/?q=${lat},${lng}`;
-          setUbicacionMaps(linkMaps);
-          setLoadingLoc(false);
-        },
-        () => {
-          alert('No se pudo obtener la ubicación automática. Escribila en la dirección.');
-          setLoadingLoc(false);
-        }
-      );
-    } else {
-      alert('La geolocalización no está soportada por tu navegador.');
-      setLoadingLoc(false);
-    }
-  };
 
   const enviarWhatsApp = (e) => {
     e.preventDefault();
 
     const comercioGuardado = JSON.parse(localStorage.getItem('valhalla_comercio')) || {};
     
-    // 🔴 COMPATIBILIDAD DUAL: Lee 'phone' (nuevo formato Service/Store) o 'whatsapp' (viejo formato)
+    // COMPATIBILIDAD DUAL: Lee 'phone' o 'whatsapp'
     const numeroWhatsApp = comercioGuardado.phone || comercioGuardado.whatsapp;
-    
-    // 🔴 COMPATIBILIDAD DUAL: Lee 'name' (nuevo formato) o 'nombreComercio' (viejo formato)
     const nombreComercio = comercioGuardado.name || comercioGuardado.nombreComercio || 'VALHALLA STORE';
 
     if (!numeroWhatsApp) {
@@ -52,18 +26,18 @@ export const CheckoutModal = ({ isOpen, onClose }) => {
     let mensaje = `*¡NUEVO PEDIDO DE ${nombreComercio.toUpperCase()}!* 🛒\n\n`;
     mensaje += `*Cliente:* ${nombre}\n`;
     mensaje += `*Teléfono:* ${telefono}\n`;
-    mensaje += `*Dirección:* ${direccion}\n`;
-    if (ubicacionMaps) mensaje += `*Ubicación Maps:* ${ubicacionMaps}\n\n`;
+    mensaje += `*Dirección:* ${direccion}\n\n`;
     mensaje += `*DETALLE DEL PEDIDO:*\n`;
 
     cart.forEach((item) => {
       const subtotalItem = Number(item.precioOferta || item.precio || 0) * Number(item.quantity);
-      mensaje += `- ${item.quantity}x ${item.nombre || item.name} ($${subtotalItem.toLocaleString()})\n`;
+      mensaje += `- ${item.quantity}x ${item.nombre}`;
+      if (item.talle) mensaje += ` (Talle: ${item.talle})`;
+      mensaje += ` ($${subtotalItem.toLocaleString('es-AR')})\n`;
     });
 
-    mensaje += `\n*TOTAL A PAGAR: $${totalPrice.toLocaleString()}*`;
+    mensaje += `\n*TOTAL A PAGAR: $${totalPrice.toLocaleString('es-AR')}*`;
 
-    // Limpiamos el número para asegurar que el link de WhatsApp funcione correctamente
     const cleanNumber = numeroWhatsApp.replace(/\D/g, '');
     const url = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(mensaje)}`;
     
@@ -83,11 +57,11 @@ export const CheckoutModal = ({ isOpen, onClose }) => {
         </button>
 
         <div className="mb-4">
-          <span className="text-[10px] font-black tracking-widest text-green-600 uppercase bg-green-50 px-2.5 py-1 rounded-full border border-green-200">
+          <span className="text-[10px] font-black tracking-widest text-emerald-700 uppercase bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
             Checkout Digital
           </span>
           <h2 className="text-lg md:text-xl font-black text-slate-900 tracking-tight mt-2 flex items-center gap-2">
-            <i className='bx bxl-whatsapp text-green-600 text-2xl'></i> Finalizar Pedido
+            <i className='bx bxl-whatsapp text-emerald-600 text-2xl'></i> Finalizar Pedido
           </h2>
         </div>
 
@@ -100,7 +74,7 @@ export const CheckoutModal = ({ isOpen, onClose }) => {
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
               placeholder="Ej: Juan Pérez"
-              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-green-500 focus:ring-2 focus:ring-green-100 outline-none transition-all"
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none transition-all"
             />
           </div>
 
@@ -112,7 +86,7 @@ export const CheckoutModal = ({ isOpen, onClose }) => {
               value={telefono}
               onChange={(e) => setTelefono(e.target.value)}
               placeholder="Ej: 11 2345 6789"
-              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-green-500 focus:ring-2 focus:ring-green-100 outline-none transition-all"
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none transition-all"
             />
           </div>
 
@@ -124,29 +98,27 @@ export const CheckoutModal = ({ isOpen, onClose }) => {
               value={direccion}
               onChange={(e) => setDireccion(e.target.value)}
               placeholder="Ej: Av. Calchaquí 1234"
-              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-green-500 focus:ring-2 focus:ring-green-100 outline-none transition-all"
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none transition-all"
             />
           </div>
 
-          <div>
-            <button
-              type="button"
-              onClick={obtenerUbicacion}
-              className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs py-3 px-3 rounded-2xl border-2 border-dashed border-blue-300 flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              <i className='bx bx-map text-base'></i> 
-              {loadingLoc ? "Obteniendo ubicación..." : ubicacionMaps ? "📍 Ubicación Capturada con Éxito" : "Marcar mi ubicación exacta (Maps)"}
-            </button>
+          {/* 🟢 ALERTA ROJA INFORMATIVA PARA EL CLIENTE */}
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3 flex items-start gap-2.5 text-rose-800">
+            <i className='bx bx-map-pin text-lg text-rose-600 shrink-0 mt-0.5'></i>
+            <p className="text-[11px] font-medium leading-relaxed">
+              <strong className="font-black block text-rose-900 mb-0.5">💡 ¡Consejo para una entrega más rápida!</strong>
+              Al abrirse el chat de WhatsApp, te sugerimos <span className="font-bold underline">enviar tu ubicación en tiempo real o por GPS</span> para que el repartidor llegue sin demoras.
+            </p>
           </div>
 
           <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 flex justify-between items-center">
             <span className="text-xs font-bold text-slate-600">Total a abonar:</span>
-            <span className="text-base md:text-lg font-black text-slate-900">${totalPrice.toLocaleString()}</span>
+            <span className="text-base md:text-lg font-black text-slate-900">${totalPrice.toLocaleString('es-AR')}</span>
           </div>
 
           <button
             type="submit"
-            className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-3.5 rounded-2xl shadow-lg shadow-green-600/20 uppercase text-xs md:text-sm tracking-wider flex items-center justify-center gap-2 transition-transform active:scale-95 mt-2 cursor-pointer"
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-2xl shadow-lg shadow-emerald-600/30 uppercase text-xs md:text-sm tracking-wider flex items-center justify-center gap-2 transition-transform active:scale-95 mt-2 cursor-pointer"
           >
             Enviar Pedido por WhatsApp 🚀
           </button>
