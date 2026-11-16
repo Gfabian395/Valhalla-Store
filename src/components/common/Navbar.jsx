@@ -15,11 +15,19 @@ export const Navbar = ({ vistaAdmin, setVistaAdmin, onLogout }) => {
     }
   };
 
-  // URL actual única e irrepetible de este comercio para la plataforma SaaS multi-tenant
-  const currentUrl = window.location.href.split('?')[0];
+  // 🔴 SAAS MULTI-TENANT: Obtenemos el ID único del comercio desde localStorage
+  const storeId = localStorage.getItem('valhalla_store_id') || localStorage.getItem('valhallastore_id') || '';
   
-  // Generación del código QR único de alta resolución basado en la ruta de la tienda actual
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(currentUrl)}`;
+  // Leemos los datos del comercio guardados para obtener su nombre
+  const comercioGuardado = JSON.parse(localStorage.getItem('valhalla_comercio')) || {};
+  const nombreComercio = comercioGuardado.name || "Tienda";
+
+  // Construimos la URL pública y única del catálogo de este tenant específico
+  const baseUrl = window.location.origin; // Ej: https://valhallastore.vercel.app
+  const currentUrl = storeId ? `${baseUrl}/store/${storeId}` : baseUrl;
+  
+  // Generación del código QR único de alta resolución basado en la URL pública de la tienda
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(currentUrl)}`;
 
   const copiarEnlace = () => {
     navigator.clipboard.writeText(currentUrl);
@@ -27,8 +35,49 @@ export const Navbar = ({ vistaAdmin, setVistaAdmin, onLogout }) => {
     setTimeout(() => setCopiado(false), 2500);
   };
 
+  const handleImprimir = () => {
+    window.print();
+  };
+
   return (
     <>
+      {/* 🟢 ESTILOS DE IMPRESIÓN: Compactos para garantizar que salga exactamente en 1 sola hoja A4 */}
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #print-area-exclusive, #print-area-exclusive * {
+            visibility: visible !important;
+          }
+          #print-area-exclusive {
+            position: fixed !important;
+            left: 50% !important;
+            top: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            width: 100% !important;
+            max-width: 450px !important;
+            margin: 0 !important;
+            padding: 10px !important;
+            background: white !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
+            align-items: center !important;
+            box-shadow: none !important;
+            border: none !important;
+            z-index: 99999 !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          @page {
+            size: A4 portrait;
+            margin: 0;
+          }
+        }
+      `}</style>
+
       <header className="bg-white/95 backdrop-blur-md text-slate-900 sticky top-0 z-40 shadow-md border-b-2 border-emerald-500">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
           
@@ -97,24 +146,24 @@ export const Navbar = ({ vistaAdmin, setVistaAdmin, onLogout }) => {
         </div>
       </header>
 
-      {/* 🟢 MODAL FOLLETO PROFESIONAL AMPLIADO A PANTALLA GRANDE */}
+      {/* 🟢 MODAL FOLLETO PROFESIONAL AMPLIADO, RESPONSIVO Y CON ZONA DE IMPRESIÓN AISLADA */}
       {modalCompartirOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 transition-all duration-300 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-2xl sm:max-w-3xl w-full p-6 sm:p-10 shadow-2xl border border-slate-100 relative my-auto">
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 transition-all duration-300 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl sm:max-w-4xl w-full p-5 sm:p-8 shadow-2xl border border-slate-100 relative my-auto">
             
             <button 
               onClick={() => setModalCompartirOpen(false)} 
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 w-9 h-9 rounded-full flex items-center justify-center font-bold text-base transition-colors cursor-pointer z-20"
+              className="no-print absolute top-5 right-5 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg transition-colors cursor-pointer z-20 shadow-xs"
             >
               ✕
             </button>
 
-            {/* Encabezado del Modal */}
-            <div className="text-center mb-5">
-              <span className="text-[11px] font-black tracking-widest text-emerald-700 uppercase bg-emerald-50 px-3.5 py-1.5 rounded-full border border-emerald-200 inline-block mb-2">
-                Folleto SaaS Multicomercio 🛡️
+            {/* Encabezado del Modal (Visible en pantalla normal) */}
+            <div className="no-print text-center mb-4 sm:mb-5">
+              <span className="text-[10px] sm:text-xs font-black tracking-widest text-emerald-700 uppercase bg-emerald-50 px-3.5 py-1 rounded-full border border-emerald-200 inline-block mb-1.5 shadow-2xs">
+                Folleto Multicomercio 🛡️ ({nombreComercio})
               </span>
-              <h3 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+              <h3 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight">
                 Compartí tu Catálogo
               </h3>
               <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-md mx-auto">
@@ -122,11 +171,17 @@ export const Navbar = ({ vistaAdmin, setVistaAdmin, onLogout }) => {
               </p>
             </div>
 
-            {/* CONTENEDOR PRINCIPAL GIGANTE: Gladiador con QR integrado en el pedestal */}
-            <div className="bg-gradient-to-b from-emerald-50/40 to-slate-50 border border-emerald-100 rounded-3xl p-5 sm:p-8 flex flex-col items-center justify-center relative shadow-inner">
+            {/* 🟢 ZONA EXCLUSIVA DE IMPRESIÓN (Contiene solo el título de la tienda, el Gladiador y su QR) */}
+            <div id="print-area-exclusive" className="bg-linear-to-b from-emerald-50/50 to-slate-50 border-2 border-emerald-100 rounded-3xl p-6 sm:p-10 flex flex-col items-center justify-center relative shadow-inner">
               
-              {/* Contenedor de gran tamaño responsivo para que el gladiador destaque */}
-              <div className="relative w-80 h-80 sm:w-96 sm:h-96 flex items-center justify-center my-2">
+              {/* Título de la tienda solo visible al imprimir */}
+              <div className="hidden print:block text-center mb-2">
+                <h1 className="text-2xl font-black text-slate-900 uppercase tracking-wider">{nombreComercio}</h1>
+                <p className="text-xs font-bold text-emerald-700 tracking-widest uppercase">Escaneá para ver el Catálogo Digital</p>
+              </div>
+
+              {/* Contenedor responsivo grande para apreciar al gladiador */}
+              <div className="relative w-full max-w-70] sm:max-w-100 aspect-square flex items-center justify-center my-1">
                 <img 
                   src="/GladiusQR.png" 
                   alt="Gladiador Presentando QR" 
@@ -136,34 +191,44 @@ export const Navbar = ({ vistaAdmin, setVistaAdmin, onLogout }) => {
                   }}
                 />
                 
-                {/* 🟢 QR ÚNICO GIGANTE E INYECTADO EXACTAMENTE SOBRE EL PEDESTAL */}
-                <div className="absolute top-[34%] left-[12%] bg-white p-2.5 rounded-2xl shadow-2xl border-2 border-emerald-500/50">
+                {/* 🟢 QR ÚNICO CALIBRADO EXACTAMENTE SOBRE EL PEDESTAL DE LA IMAGEN */}
+                <div className="absolute top-[38%] left-[16%] w-[38%] h-[38%] bg-white p-1.5 sm:p-2 rounded-2xl shadow-2xl border-2 border-emerald-500/60 flex items-center justify-center">
                   <img 
                     src={qrCodeUrl} 
                     alt="QR Único del Comercio" 
-                    className="w-32 h-32 sm:w-40 sm:h-40 object-contain rounded-xl bg-white"
+                    className="w-full h-full object-contain rounded-xl bg-white"
                   />
                 </div>
               </div>
 
-              <span className="text-xs sm:text-sm font-bold text-emerald-800 bg-white px-4 py-1.5 rounded-full border border-emerald-200 shadow-xs mt-3">
+              <span className="text-[11px] sm:text-sm font-bold text-emerald-800 bg-white px-4 py-1.5 rounded-full border border-emerald-200 shadow-xs mt-3">
                 📱 Escaneá con cualquier celular
               </span>
             </div>
 
-            {/* Enlace Directo y Botón Copiar */}
-            <div className="space-y-3 mt-6">
-              <div className="bg-slate-100 border border-slate-200 rounded-2xl px-4 py-3.5 text-xs sm:text-sm text-slate-700 font-mono truncate select-all text-center shadow-inner">
+            {/* Acciones: Enlace Directo, Copiar e Imprimir (Ocultos al imprimir) */}
+            <div className="space-y-3 mt-4 sm:mt-5">
+              <div className="bg-slate-100 border border-slate-200 rounded-2xl px-4 py-3 text-xs sm:text-sm text-slate-700 font-mono truncate select-all text-center shadow-inner font-bold">
                 {currentUrl}
               </div>
 
-              <button
-                onClick={copiarEnlace}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 rounded-2xl text-xs sm:text-sm uppercase tracking-wider shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer"
-              >
-                <i className={`bx ${copiado ? 'bx-check text-xl' : 'bx-copy text-xl'}`}></i>
-                {copiado ? "¡Enlace Copiado al Portapapeles!" : "Copiar Enlace de Mi Tienda 🚀"}
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 no-print">
+                <button
+                  onClick={copiarEnlace}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-2xl text-xs sm:text-sm uppercase tracking-wider shadow-xl shadow-emerald-600/30 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer"
+                >
+                  <i className={`bx ${copiado ? 'bx-check text-lg' : 'bx-copy text-lg'}`}></i>
+                  {copiado ? "¡Enlace Copiado!" : "Copiar Enlace 🚀"}
+                </button>
+
+                <button
+                  onClick={handleImprimir}
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-slate-700 font-black py-3.5 rounded-2xl text-xs sm:text-sm uppercase tracking-wider shadow-xl flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer"
+                >
+                  <i className='bx bx-printer text-lg'></i>
+                  Imprimir Folleto QR 🖨️
+                </button>
+              </div>
             </div>
 
           </div>
