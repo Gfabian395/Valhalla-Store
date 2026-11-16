@@ -1,25 +1,55 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { db } from '../../services/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { useCart } from '../../context/CartContext';
 
 export const CheckoutModal = ({ isOpen, onClose }) => {
+  const { storeId } = useParams(); // Obtenemos el ID del comercio directamente de la URL pública
   const { cart, totalPrice, clearCart } = useCart();
+  
   const [nombre, setNombre] = useState('');
   const [telefono, setTelefono] = useState('');
   const [direccion, setDireccion] = useState('');
+  const [telefonoComercio, setTelefonoComercio] = useState('');
+  const [nombreComercio, setNombreComercio] = useState('VALHALLA STORE');
+
+  // Consultamos Firestore al abrir el modal para asegurar tener el número de WhatsApp del comercio desde cualquier dispositivo
+  useEffect(() => {
+    const fetchDatosComercio = async () => {
+      if (!storeId) {
+        // Fallback por si se abre desde el panel de admin donde no hay :storeId en la URL
+        const comercioLocal = JSON.parse(localStorage.getItem('valhalla_comercio')) || {};
+        setTelefonoComercio(comercioLocal.phone || comercioLocal.whatsapp || '');
+        setNombreComercio(comercioLocal.name || comercioLocal.nombreComercio || 'VALHALLA STORE');
+        return;
+      }
+
+      try {
+        const docRef = doc(db, 'comercios', storeId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setTelefonoComercio(data.phone || data.whatsapp || '');
+          setNombreComercio(data.name || 'VALHALLA STORE');
+        }
+      } catch (error) {
+        console.error("Error al obtener datos del comercio para el checkout:", error);
+      }
+    };
+
+    if (isOpen) {
+      fetchDatosComercio();
+    }
+  }, [isOpen, storeId]);
 
   if (!isOpen) return null;
 
   const enviarWhatsApp = (e) => {
     e.preventDefault();
 
-    const comercioGuardado = JSON.parse(localStorage.getItem('valhalla_comercio')) || {};
-    
-    // COMPATIBILIDAD DUAL: Lee 'phone' o 'whatsapp'
-    const numeroWhatsApp = comercioGuardado.phone || comercioGuardado.whatsapp;
-    const nombreComercio = comercioGuardado.name || comercioGuardado.nombreComercio || 'VALHALLA STORE';
-
-    if (!numeroWhatsApp) {
-      alert('Error: No se encontró un comercio registrado o falta configurar el número de WhatsApp.');
+    if (!telefonoComercio) {
+      alert('Error: Este comercio no tiene configurado un número de WhatsApp para recibir pedidos.');
       return;
     }
 
@@ -38,7 +68,7 @@ export const CheckoutModal = ({ isOpen, onClose }) => {
 
     mensaje += `\n*TOTAL A PAGAR: $${totalPrice.toLocaleString('es-AR')}*`;
 
-    const cleanNumber = numeroWhatsApp.replace(/\D/g, '');
+    const cleanNumber = telefonoComercio.replace(/\D/g, '');
     const url = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(mensaje)}`;
     
     window.open(url, '_blank');
@@ -102,7 +132,6 @@ export const CheckoutModal = ({ isOpen, onClose }) => {
             />
           </div>
 
-          {/* 🟢 ALERTA ROJA INFORMATIVA PARA EL CLIENTE */}
           <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3 flex items-start gap-2.5 text-rose-800">
             <i className='bx bx-map-pin text-lg text-rose-600 shrink-0 mt-0.5'></i>
             <p className="text-[11px] font-medium leading-relaxed">
