@@ -36,17 +36,17 @@ export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 transition-all duration-300">
-      <div className="bg-slate-900 border-2 border-yellow-400/50 rounded-3xl max-w-xl w-full p-6 md:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto text-white">
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-300">
+      <div className="bg-white border border-slate-100 rounded-3xl max-w-xl w-full p-6 md:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto text-slate-800">
         
         <div className="mb-6 text-center">
-          <span className="text-[10px] font-black tracking-widest text-yellow-400 uppercase bg-yellow-400/10 px-3 py-1 rounded-full border border-yellow-400/20">
+          <span className="text-[10px] font-black tracking-widest text-emerald-700 uppercase bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
             Paso 2 de 2: Elegí tu Plan 🚀
           </span>
-          <h2 className="text-xl md:text-2xl font-black tracking-tight mt-3 text-white">
+          <h2 className="text-xl md:text-2xl font-black tracking-tight mt-3 text-slate-900">
             Selecciona una Suscripción
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 mt-1">
             Al elegir tu plan, se abrirá tu WhatsApp para coordinar el alta de forma directa con Valhalla Store.
           </p>
         </div>
@@ -68,33 +68,33 @@ export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack }) => {
                   console.log("[PlanSelectionModal] Clic en plan:", plan.id);
                   onSelectPlan(plan);
                 }}
-                className="bg-slate-800/80 hover:bg-slate-800 border-2 border-slate-700 hover:border-yellow-400 p-4 rounded-2xl cursor-pointer transition-all flex items-center justify-between gap-4 group"
+                className="bg-slate-50 hover:bg-emerald-50/40 border-2 border-slate-200 hover:border-emerald-500 p-4 rounded-2xl cursor-pointer transition-all flex items-center justify-between gap-4 group shadow-sm"
               >
                 <div>
-                  <h3 className="text-sm font-black text-yellow-400 group-hover:text-white transition-colors">
+                  <h3 className="text-sm font-black text-emerald-800 group-hover:text-emerald-900 transition-colors">
                     {plan.nombre || plan.id}
                   </h3>
                   
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
                     {plan.precio !== undefined && (
-                      <span className="text-white font-bold bg-slate-700/70 px-2 py-0.5 rounded-md">
+                      <span className="text-slate-700 font-bold bg-white border border-slate-200 px-2 py-0.5 rounded-md shadow-2xs">
                         Pago único: ${Number(plan.precio).toLocaleString()}
                       </span>
                     )}
                     {plan.mantenimiento_mensual !== undefined && (
-                      <span className="text-yellow-300 font-bold bg-slate-700/70 px-2 py-0.5 rounded-md">
+                      <span className="text-amber-800 font-bold bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
                         Mantenimiento: ${Number(plan.mantenimiento_mensual).toLocaleString()} /mes
                       </span>
                     )}
                   </div>
 
-                  <p className="text-[11px] text-slate-400 mt-1.5 flex flex-wrap gap-x-2">
-                    <span>• {plan.maximo_categorias !== undefined ? `${plan.maximo_categorias} Categorías` : 'Categorías ilimitadas'}</span>
-                    <span>• {plan.maximo_productos_por_categoria !== undefined ? `${plan.maximo_productos_por_categoria} Prod. por categoría` : 'Productos ilimitados'}</span>
+                  <p className="text-[11px] text-slate-500 mt-1.5 flex flex-wrap gap-x-2">
+                    <span>- {plan.maximo_categorias !== undefined ? `${plan.maximo_categorias} Categorías` : 'Categorías ilimitadas'}</span>
+                    <span>- {plan.maximo_productos_por_categoria !== undefined ? `${plan.maximo_productos_por_categoria} Prod. por categoría` : 'Productos ilimitados'}</span>
                   </p>
                 </div>
                 
-                <span className="bg-green-600 group-hover:bg-green-500 text-white p-2.5 rounded-xl text-xs font-black shrink-0 flex items-center gap-1 shadow">
+                <span className="bg-emerald-600 group-hover:bg-emerald-700 text-white p-2.5 rounded-xl text-xs font-black shrink-0 flex items-center gap-1 shadow-md transition-colors">
                   <i className='bx bxl-whatsapp text-lg'></i> Elegir
                 </span>
               </div>
@@ -105,7 +105,7 @@ export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack }) => {
         <button
           type="button"
           onClick={onBack}
-          className="mt-5 text-xs text-slate-400 hover:text-white underline block mx-auto cursor-pointer"
+          className="mt-5 text-xs text-slate-500 hover:text-slate-800 underline block mx-auto cursor-pointer font-medium"
         >
           ← Volver a editar datos del comercio
         </button>

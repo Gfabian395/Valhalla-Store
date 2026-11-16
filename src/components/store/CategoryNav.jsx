@@ -7,10 +7,10 @@ export const CategoryNav = ({ categorias, categoriaSeleccionada, onSelectCategor
         <button
           key={cat}
           onClick={() => onSelectCategoria(cat)}
-          className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all shadow-sm cursor-pointer ${
+          className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all shadow-xs cursor-pointer ${
             categoriaSeleccionada === cat
-              ? 'bg-slate-900 text-yellow-400 border-2 border-yellow-400 shadow-md'
-              : 'bg-white/80 backdrop-blur-md text-slate-700 border-2 border-slate-200 hover:border-slate-400'
+              ? 'bg-emerald-600 text-white border-2 border-emerald-600 shadow-md shadow-emerald-600/20'
+              : 'bg-white hover:bg-slate-50 text-slate-700 border-2 border-slate-200 hover:border-emerald-500'
           }`}
         >
           {cat}
@@ -21,7 +21,7 @@ export const CategoryNav = ({ categorias, categoriaSeleccionada, onSelectCategor
       {vistaAdmin && (
         <button
           onClick={onAddCategory}
-          className="bg-yellow-400 hover:bg-yellow-500 text-slate-900 px-3.5 py-2 rounded-2xl text-xs font-black uppercase tracking-wider whitespace-nowrap flex items-center gap-1 shadow transition-transform active:scale-95 cursor-pointer"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-2xl text-xs font-black uppercase tracking-wider whitespace-nowrap flex items-center gap-1 shadow-md shadow-emerald-600/20 transition-transform active:scale-95 cursor-pointer"
           title="Crear Nueva Categoría"
         >
           <i className='bx bx-plus text-base font-bold'></i> Nueva Categoría

@@ -73,8 +73,8 @@ export const CheckoutModal = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 transition-all duration-300">
-      <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl rounded-3xl max-w-md w-full p-6 md:p-8 shadow-2xl border border-white/20 relative">
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-300">
+      <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 shadow-2xl border border-slate-100 relative">
         <button 
           onClick={onClose}
           className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-colors cursor-pointer"
@@ -86,45 +86,45 @@ export const CheckoutModal = ({ isOpen, onClose }) => {
           <span className="text-[10px] font-black tracking-widest text-green-600 uppercase bg-green-50 px-2.5 py-1 rounded-full border border-green-200">
             Checkout Digital
           </span>
-          <h2 className="text-lg md:text-xl font-black text-slate-900 dark:text-white tracking-tight mt-2 flex items-center gap-2">
+          <h2 className="text-lg md:text-xl font-black text-slate-900 tracking-tight mt-2 flex items-center gap-2">
             <i className='bx bxl-whatsapp text-green-600 text-2xl'></i> Finalizar Pedido
           </h2>
         </div>
 
-        <form onSubmit={enviarWhatsApp} className="space-y-3.5 text-xs font-bold text-slate-600 dark:text-slate-300">
+        <form onSubmit={enviarWhatsApp} className="space-y-3.5 text-xs font-bold text-slate-600">
           <div>
-            <label className="block uppercase tracking-wider mb-1.5 text-[10px]">Tu Nombre y Apellido</label>
+            <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">Tu Nombre y Apellido</label>
             <input
               type="text"
               required
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
               placeholder="Ej: Juan Pérez"
-              className="w-full bg-slate-50/70 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm text-slate-800 dark:text-white font-normal placeholder-slate-400 focus:bg-white focus:border-slate-400 focus:ring-2 focus:ring-slate-200 outline-none transition-all"
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-green-500 focus:ring-2 focus:ring-green-100 outline-none transition-all"
             />
           </div>
 
           <div>
-            <label className="block uppercase tracking-wider mb-1.5 text-[10px]">Teléfono / WhatsApp de Contacto</label>
+            <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">Teléfono / WhatsApp de Contacto</label>
             <input
               type="tel"
               required
               value={telefono}
               onChange={(e) => setTelefono(e.target.value)}
               placeholder="Ej: 11 2345 6789"
-              className="w-full bg-slate-50/70 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm text-slate-800 dark:text-white font-normal placeholder-slate-400 focus:bg-white focus:border-slate-400 focus:ring-2 focus:ring-slate-200 outline-none transition-all"
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-green-500 focus:ring-2 focus:ring-green-100 outline-none transition-all"
             />
           </div>
 
           <div>
-            <label className="block uppercase tracking-wider mb-1.5 text-[10px]">Dirección / Esquina de Entrega</label>
+            <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">Dirección / Esquina de Entrega</label>
             <input
               type="text"
               required
               value={direccion}
               onChange={(e) => setDireccion(e.target.value)}
               placeholder="Ej: Av. Calchaquí 1234"
-              className="w-full bg-slate-50/70 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm text-slate-800 dark:text-white font-normal placeholder-slate-400 focus:bg-white focus:border-slate-400 focus:ring-2 focus:ring-slate-200 outline-none transition-all"
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-green-500 focus:ring-2 focus:ring-green-100 outline-none transition-all"
             />
           </div>
 
@@ -132,21 +132,21 @@ export const CheckoutModal = ({ isOpen, onClose }) => {
             <button
               type="button"
               onClick={obtenerUbicacion}
-              className="w-full bg-blue-50/80 hover:bg-blue-100 text-blue-700 font-bold text-xs py-3 px-3 rounded-2xl border-2 border-dashed border-blue-300 flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs py-3 px-3 rounded-2xl border-2 border-dashed border-blue-300 flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
               <i className='bx bx-map text-base'></i> 
               {loadingLoc ? "Obteniendo ubicación..." : ubicacionMaps ? "📍 Ubicación Capturada con Éxito" : "Marcar mi ubicación exacta (Maps)"}
             </button>
           </div>
 
-          <div className="bg-slate-100/70 dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-700 flex justify-between items-center">
-            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Total a abonar:</span>
-            <span className="text-base md:text-lg font-black text-red-600">${totalPrice.toLocaleString()}</span>
+          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 flex justify-between items-center">
+            <span className="text-xs font-bold text-slate-600">Total a abonar:</span>
+            <span className="text-base md:text-lg font-black text-slate-900">${totalPrice.toLocaleString()}</span>
           </div>
 
           <button
             type="submit"
-            className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-3.5 rounded-2xl shadow-lg uppercase text-xs md:text-sm tracking-wider flex items-center justify-center gap-2 transition-transform active:scale-95 mt-2 cursor-pointer"
+            className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-3.5 rounded-2xl shadow-lg shadow-green-600/20 uppercase text-xs md:text-sm tracking-wider flex items-center justify-center gap-2 transition-transform active:scale-95 mt-2 cursor-pointer"
           >
             Enviar Pedido por WhatsApp 🚀
           </button>

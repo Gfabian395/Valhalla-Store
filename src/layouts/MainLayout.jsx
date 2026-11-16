@@ -9,7 +9,7 @@ export const MainLayout = ({ children, vistaAdmin, setVistaAdmin, onLogout }) =>
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col justify-between font-sans">
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-between font-sans">
       {/* Modal encargado del flujo de autenticación, datos del comercio y planes */}
       <StoreSetupModal 
         onStoreRegistered={() => {
