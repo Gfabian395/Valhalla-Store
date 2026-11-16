@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { CartProvider } from './context/CartContext';
 import { MainLayout } from './layouts/MainLayout';
 import { Home } from './pages/Home';
+import { CatalogoPublico } from './pages/CatalogoPublico'; // 🟢 Importamos la vista pública para los clientes del QR
 import { auth } from './services/firebase';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 
@@ -42,12 +43,22 @@ function App() {
   return (
     <CartProvider>
       <Router>
-        {/* MainLayout incluye el StoreSetupModal encargado del login, datos del local y planes */}
-        <MainLayout vistaAdmin={vistaAdmin} setVistaAdmin={setVistaAdmin} onLogout={handleLogout}>
-          <Routes>
-            <Route path="/" element={<Home vistaAdmin={vistaAdmin} storeId={user ? user.uid : ''} />} />
-          </Routes>
-        </MainLayout>
+        <Routes>
+          {/* 🟢 Ruta pública exclusiva para los clientes que escanean el código QR del folleto */}
+          <Route path="/store/:storeId" element={<CatalogoPublico />} />
+
+          {/* Rutas administrativas del comerciante (envueltas en MainLayout con autenticación y setup) */}
+          <Route 
+            path="/*" 
+            element={
+              <MainLayout vistaAdmin={vistaAdmin} setVistaAdmin={setVistaAdmin} onLogout={handleLogout}>
+                <Routes>
+                  <Route path="/" element={<Home vistaAdmin={vistaAdmin} storeId={user ? user.uid : ''} />} />
+                </Routes>
+              </MainLayout>
+            } 
+          />
+        </Routes>
       </Router>
     </CartProvider>
   );
