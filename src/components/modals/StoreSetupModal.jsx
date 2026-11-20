@@ -3,19 +3,30 @@ import { db, auth } from '../../services/firebase';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
 import { PlanSelectionModal } from './PlanSelectionModal';
+import { obtenerTemaComercio } from '../../utils/temasComercio';
 
 // 🔴 TUS NÚMEROS Y CONFIGURACIONES DE ADMINISTRADOR
 const ADMIN_WHATSAPP_NUMBER = '5491159781434';
 
-export const StoreSetupModal = ({ onStoreRegistered }) => {
+const leerColorTema = () => {
+  try {
+    const comercioLocal = JSON.parse(localStorage.getItem('valhalla_comercio')) || {};
+    return comercioLocal.colorTema || 'emerald';
+  } catch {
+    return 'emerald';
+  }
+};
+
+export const StoreSetupModal = ({ onStoreRegistered, colorTema }) => {
   const [user, setUser] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
-  
+  const [temaIdActual, setTemaIdActual] = useState(() => colorTema || leerColorTema());
+
   const [paso, setPaso] = useState('form');
   const [isPendingActivation, setIsPendingActivation] = useState(false);
-  
+
   const [businessData, setBusinessData] = useState({
     workshopName: '',
     ownerName: '',
@@ -24,67 +35,97 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
   });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        
-        try {
-          const storeDocRef = doc(db, 'comercios', currentUser.uid);
-          const storeSnap = await getDoc(storeDocRef);
-          
-          if (storeSnap.exists()) {
-            const data = storeSnap.data();
-            
-            // Guardamos el estado fresco en localStorage
-            localStorage.setItem('valhalla_store_id', storeSnap.id);
-            localStorage.setItem('valhalla_comercio', JSON.stringify(data));
+    if (colorTema) {
+      setTemaIdActual(colorTema);
+    }
+  }, [colorTema]);
 
-            const isConfigured = Boolean(
-              data.workshopConfigured && (data.name || data.workshopName)
-            );
-            
-            // 🔴 COMPATIBILIDAD CON RAGNAROK: Acepta tanto 'status' como 'activo' en true
-            const isActive = data.status === true || data.activo === true;
-            
-            if (isConfigured && isActive) {
-              setIsPendingActivation(false);
-              setIsOpen(false);
-              if (onStoreRegistered) onStoreRegistered();
+  useEffect(() => {
+    const sincronizarTema = (evento) => {
+      setTemaIdActual(evento?.detail?.colorTema || colorTema || leerColorTema());
+    };
+
+    window.addEventListener('valhalla:tema-cambiado', sincronizarTema);
+    window.addEventListener('valhalla:comercio-actualizado', sincronizarTema);
+    window.addEventListener('storage', sincronizarTema);
+    return () => {
+      window.removeEventListener('valhalla:tema-cambiado', sincronizarTema);
+      window.removeEventListener('valhalla:comercio-actualizado', sincronizarTema);
+      window.removeEventListener('storage', sincronizarTema);
+    };
+  }, [colorTema]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (currentUser) => {
+        if (currentUser) {
+          setUser(currentUser);
+
+          try {
+            const storeDocRef = doc(db, 'comercios', currentUser.uid);
+            const storeSnap = await getDoc(storeDocRef);
+
+            if (storeSnap.exists()) {
+              const data = storeSnap.data();
+              const temaGuardado = data.colorTema || leerColorTema() || 'emerald';
+              const comercioConTema = { ...data, colorTema: temaGuardado };
+
+              // Guardamos el estado fresco en localStorage
+              localStorage.setItem('valhalla_store_id', storeSnap.id);
+              localStorage.setItem('valhalla_comercio', JSON.stringify(comercioConTema));
+              if (!colorTema) {
+                setTemaIdActual(temaGuardado);
+              }
+
+              const isConfigured = Boolean(
+                data.workshopConfigured && (data.name || data.workshopName)
+              );
+
+              // 🔴 COMPATIBILIDAD CON RAGNAROK: Acepta tanto 'status' como 'activo' en true
+              const isActive = data.status === true || data.activo === true;
+
+              if (isConfigured && isActive) {
+                setIsPendingActivation(false);
+                setIsOpen(false);
+                if (onStoreRegistered) onStoreRegistered(comercioConTema);
+              } else {
+                // Si está configurado pero aún no fue activado por Ragnarok
+                setIsPendingActivation(true);
+                setIsOpen(true);
+              }
             } else {
-              // Si está configurado pero aún no fue activado por Ragnarok
-              setIsPendingActivation(true);
+              localStorage.removeItem('valhalla_store_id');
+              localStorage.removeItem('valhalla_comercio');
+              setBusinessData({
+                workshopName: '',
+                ownerName: currentUser.displayName || '',
+                phone: '',
+                address: '',
+              });
+              setIsPendingActivation(false);
               setIsOpen(true);
             }
-          } else {
-            localStorage.removeItem('valhalla_store_id');
-            localStorage.removeItem('valhalla_comercio');
-            setBusinessData({
-              workshopName: '',
-              ownerName: currentUser.displayName || '',
-              phone: '',
-              address: '',
-            });
-            setIsPendingActivation(false);
+          } catch (error) {
+            console.error('Error consultando comercio en Firestore:', error);
             setIsOpen(true);
           }
-        } catch (error) {
-          console.error("Error consultando comercio en Firestore:", error);
+        } else {
+          setUser(null);
+          setIsPendingActivation(false);
           setIsOpen(true);
         }
-      } else {
-        setUser(null);
-        setIsPendingActivation(false);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error en onAuthStateChanged:', error);
+        setLoading(false);
         setIsOpen(true);
       }
-      setLoading(false);
-    }, (error) => {
-      console.error("Error en onAuthStateChanged:", error);
-      setLoading(false);
-      setIsOpen(true);
-    });
+    );
 
     return () => unsubscribe();
-  }, [onStoreRegistered]);
+  }, [onStoreRegistered, colorTema]);
 
   const handleLoginGoogle = async () => {
     setAuthError('');
@@ -93,30 +134,41 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
     try {
       const result = await signInWithPopup(auth, provider);
       if (result.user && !businessData.ownerName) {
-        setBusinessData(prev => ({ ...prev, ownerName: result.user.displayName || '' }));
+        setBusinessData((prev) => ({ ...prev, ownerName: result.user.displayName || '' }));
       }
     } catch (error) {
-      console.error("Error al iniciar sesión con Google:", error);
+      console.error('Error al iniciar sesión con Google:', error);
       setAuthError(`Error al iniciar sesión: ${error.message}`);
     }
   };
 
   const handleSiguienteAPlanes = (e) => {
     e.preventDefault();
-    if (!businessData.workshopName.trim() || !businessData.ownerName.trim() || !businessData.phone.trim()) return;
+    if (
+      !businessData.workshopName.trim() ||
+      !businessData.ownerName.trim() ||
+      !businessData.phone.trim()
+    ) {
+      return;
+    }
     setPaso('planes');
   };
 
   const seleccionarPlanYEnviarWhatsApp = async (planElegido) => {
     try {
       const storeId = user.uid;
-      
+
       const planName = planElegido.nombre || planElegido.name || planElegido.id || 'Plan';
       const planPrice = Number(planElegido.precio || planElegido.price || 0);
       const planMaintenance = Number(planElegido.mantenimiento_mensual || 0);
+      const temaActual = temaIdActual || leerColorTema() || 'emerald';
 
       const rawNumber = businessData.phone.replace(/\D/g, '');
-      const formattedWhatsapp = rawNumber.startsWith('549') ? `+${rawNumber}` : rawNumber.startsWith('54') ? `+549${rawNumber.slice(2)}` : `+549${rawNumber}`;
+      const formattedWhatsapp = rawNumber.startsWith('549')
+        ? `+${rawNumber}`
+        : rawNumber.startsWith('54')
+        ? `+549${rawNumber.slice(2)}`
+        : `+549${rawNumber}`;
 
       const comercioData = {
         ownerUid: user.uid,
@@ -129,6 +181,7 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
         planName: planName,
         planPrice: planPrice,
         planMaintenance: planMaintenance,
+        colorTema: temaActual,
         workshopConfigured: true,
         status: false,
         createdAt: serverTimestamp(),
@@ -153,13 +206,15 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
         'El comercio ha completado su registro y aguarda validación para activar su cuenta.',
       ].join('\n');
 
-      const urlWhatsApp = `https://wa.me/${ADMIN_WHATSAPP_NUMBER}?text=${encodeURIComponent(whatsappMessage)}`;
+      const urlWhatsApp = `https://wa.me/${ADMIN_WHATSAPP_NUMBER}?text=${encodeURIComponent(
+        whatsappMessage
+      )}`;
       window.open(urlWhatsApp, '_blank', 'noopener,noreferrer');
 
       setIsPendingActivation(true);
       setIsOpen(true);
     } catch (error) {
-      console.error("Error al registrar el comercio en Firestore:", error);
+      console.error('Error al registrar el comercio en Firestore:', error);
       alert(`Hubo un error al registrar el comercio: ${error.message}`);
     }
   };
@@ -167,12 +222,15 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
   if (loading) return null;
   if (!isOpen) return null;
 
+  const tema = obtenerTemaComercio(temaIdActual);
+
   if (paso === 'planes') {
     return (
-      <PlanSelectionModal 
-        isOpen={true} 
-        onSelectPlan={seleccionarPlanYEnviarWhatsApp} 
-        onBack={() => setPaso('form')} 
+      <PlanSelectionModal
+        isOpen={true}
+        onSelectPlan={seleccionarPlanYEnviarWhatsApp}
+        onBack={() => setPaso('form')}
+        colorTema={tema.id}
       />
     );
   }
@@ -180,17 +238,18 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-300">
       <div className="bg-white border border-slate-100 rounded-3xl max-w-lg w-full p-6 md:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto text-slate-800">
-        
         {!user ? (
           <div className="text-center py-6">
-            <span className="text-[10px] font-black tracking-widest text-emerald-700 uppercase bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+            <span
+              className={`text-[10px] font-black tracking-widest uppercase px-3 py-1 rounded-full border ${tema.badgeSuave}`}
+            >
               Plataforma SaaS Multi-Comercio 🚀
             </span>
             <h2 className="text-xl md:text-2xl font-black tracking-tight mt-4 text-slate-900">
               Acceso Exclusivo Comerciantes
             </h2>
             <p className="text-xs text-slate-500 mt-2 mb-6">
-              Inicia sesión con tu cuenta de Google para registrar tu tienda digital.
+              Iniciá sesión con tu cuenta de Google para registrar tu tienda digital.
             </p>
 
             {authError && (
@@ -200,16 +259,17 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
             )}
 
             <button
+              type="button"
               onClick={handleLoginGoogle}
               className="w-full bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-black py-3.5 rounded-2xl flex items-center justify-center gap-3 shadow-sm transition-all active:scale-95 text-sm cursor-pointer"
             >
-              <i className='bx bxl-google text-red-600 text-xl'></i> Continuar con Google
+              <i className="bx bxl-google text-red-600 text-xl"></i> Continuar con Google
             </button>
           </div>
         ) : isPendingActivation ? (
           <div className="text-center py-6">
             <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
-              <i className='bx bx-time-five text-3xl animate-spin'></i>
+              <i className="bx bx-time-five text-3xl animate-spin"></i>
             </div>
             <span className="text-[10px] font-black tracking-widest text-amber-800 uppercase bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
               Activación Pendiente ⏳
@@ -221,12 +281,18 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
               Tu tienda ya fue registrada y elegiste tu plan. Una vez que acredites el pago con el administrador, tu cuenta será habilitada para gestionar categorías y productos.
             </p>
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-left text-xs space-y-1 mb-6">
-              <p className="text-slate-500">Cuenta: <span className="text-slate-800 font-bold">{user.email}</span></p>
-              <p className="text-slate-500">Estado: <span className="text-amber-700 font-bold">Pendiente de habilitación</span></p>
+              <p className="text-slate-500">
+                Cuenta: <span className="text-slate-800 font-bold">{user.email}</span>
+              </p>
+              <p className="text-slate-500">
+                Estado:{' '}
+                <span className="text-amber-700 font-bold">Pendiente de habilitación</span>
+              </p>
             </div>
             <button
+              type="button"
               onClick={() => window.location.reload()}
-              className="w-full bg-slate-100 hover:bg-slate-200 text-emerald-800 font-black py-3 rounded-2xl text-xs uppercase tracking-wider border border-slate-200 cursor-pointer transition-all"
+              className={`w-full bg-slate-100 hover:bg-slate-200 font-black py-3 rounded-2xl text-xs uppercase tracking-wider border border-slate-200 cursor-pointer transition-all ${tema.textoAcento}`}
             >
               Verificar si ya fui habilitado 🔄
             </button>
@@ -234,65 +300,81 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
         ) : (
           <div>
             <div className="mb-6 text-center">
-              <span className="text-[10px] font-black tracking-widest text-emerald-700 uppercase bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+              <span
+                className={`text-[10px] font-black tracking-widest uppercase px-3 py-1 rounded-full border ${tema.badgeSuave}`}
+              >
                 Paso 1 de 2: Datos de tu Tienda 🚀
               </span>
               <h2 className="text-xl md:text-2xl font-black tracking-tight mt-3 text-slate-900">
-                Registra tu Comercio
+                Registrá tu Comercio
               </h2>
               <p className="text-xs text-slate-500 mt-1">
-                Autenticado como: <span className="text-emerald-700 font-bold">{user.email}</span>
+                Autenticado como:{' '}
+                <span className={`font-bold ${tema.loaderTexto}`}>{user.email}</span>
               </p>
             </div>
 
-            <form onSubmit={handleSiguienteAPlanes} className="space-y-3.5 text-xs font-bold text-slate-600">
+            <form
+              onSubmit={handleSiguienteAPlanes}
+              className="space-y-3.5 text-xs font-bold text-slate-600"
+            >
               <div>
                 <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">
-                  Nombre del Comercio <span className="text-emerald-600">*</span>
+                  Nombre del Comercio <span className={tema.loaderTexto}>*</span>
                 </label>
                 <input
                   type="text"
                   required
                   value={businessData.workshopName}
-                  onChange={(e) => setBusinessData({...businessData, workshopName: e.target.value})}
+                  onChange={(e) =>
+                    setBusinessData({ ...businessData, workshopName: e.target.value })
+                  }
                   placeholder="Ej. Valhalla Store"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none transition-all"
+                  className={`w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:ring-2 outline-none transition-all ${tema.inputFoco}`}
                 />
               </div>
 
               <div>
                 <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">
-                  Nombre y Apellido del Titular <span className="text-emerald-600">*</span>
+                  Nombre y Apellido del Titular <span className={tema.loaderTexto}>*</span>
                 </label>
                 <input
                   type="text"
                   required
                   value={businessData.ownerName}
-                  onChange={(e) => setBusinessData({...businessData, ownerName: e.target.value})}
+                  onChange={(e) =>
+                    setBusinessData({ ...businessData, ownerName: e.target.value })
+                  }
                   placeholder="Ej. Fabián González"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none transition-all"
+                  className={`w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:ring-2 outline-none transition-all ${tema.inputFoco}`}
                 />
               </div>
 
               <div>
                 <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">
-                  WhatsApp del Comercio <span className="text-emerald-600">*</span>
+                  WhatsApp del Comercio <span className={tema.loaderTexto}>*</span>
                 </label>
-                <div className="flex items-center bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-100 transition-all">
-                  <span className="pl-4 pr-2 text-sm text-emerald-700 font-mono select-none">+549</span>
+                <div
+                  className={`flex items-center bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden focus-within:ring-2 transition-all ${tema.inputFoco}`}
+                >
+                  <span className={`pl-4 pr-2 text-sm font-mono select-none ${tema.loaderTexto}`}>
+                    +549
+                  </span>
                   <input
                     type="tel"
                     required
                     value={businessData.phone}
                     onChange={(e) => {
                       const val = e.target.value.replace(/\D/g, '');
-                      setBusinessData({...businessData, phone: val});
+                      setBusinessData({ ...businessData, phone: val });
                     }}
                     placeholder="1159781434"
                     className="w-full bg-transparent border-none px-2 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 outline-none"
                   />
                 </div>
-                <span className="text-[10px] text-slate-400 mt-1 block">Ingresá tu número sin el +549 (ej: 1159781434)</span>
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Ingresá tu número sin el +549 (ej: 1159781434)
+                </span>
               </div>
 
               <div>
@@ -302,22 +384,23 @@ export const StoreSetupModal = ({ onStoreRegistered }) => {
                 <input
                   type="text"
                   value={businessData.address}
-                  onChange={(e) => setBusinessData({...businessData, address: e.target.value})}
+                  onChange={(e) =>
+                    setBusinessData({ ...businessData, address: e.target.value })
+                  }
                   placeholder="Ej. Av. Calchaquí 1234, Quilmes"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-none transition-all"
+                  className={`w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:ring-2 outline-none transition-all ${tema.inputFoco}`}
                 />
               </div>
 
-              <button 
-                type="submit" 
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-2xl uppercase tracking-wider text-xs md:text-sm shadow-lg shadow-emerald-600/20 transition-transform active:scale-95 mt-4 cursor-pointer"
+              <button
+                type="submit"
+                className={`w-full font-black py-3.5 rounded-2xl uppercase tracking-wider text-xs md:text-sm shadow-lg transition-transform active:scale-95 mt-4 cursor-pointer ${tema.botonPrimario}`}
               >
                 Continuar a Selección de Planes 🚀
               </button>
             </form>
           </div>
         )}
-
       </div>
     </div>
   );

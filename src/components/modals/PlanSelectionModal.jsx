@@ -1,12 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { obtenerTemaComercio } from '../../utils/temasComercio';
 
-export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack }) => {
+const leerColorTema = () => {
+  try {
+    const comercioLocal = JSON.parse(localStorage.getItem('valhalla_comercio')) || {};
+    return comercioLocal.colorTema || 'emerald';
+  } catch {
+    return 'emerald';
+  }
+};
+
+export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack, colorTema }) => {
   const [planes, setPlanes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [temaIdActual, setTemaIdActual] = useState(() => colorTema || leerColorTema());
 
-  console.log("[PlanSelectionModal] Renderizando componente. isOpen:", isOpen);
+  useEffect(() => {
+    if (colorTema) {
+      setTemaIdActual(colorTema);
+    }
+  }, [colorTema]);
+
+  useEffect(() => {
+    const sincronizarTema = (evento) => {
+      setTemaIdActual(evento?.detail?.colorTema || colorTema || leerColorTema());
+    };
+
+    window.addEventListener('valhalla:tema-cambiado', sincronizarTema);
+    window.addEventListener('valhalla:comercio-actualizado', sincronizarTema);
+    window.addEventListener('storage', sincronizarTema);
+    return () => {
+      window.removeEventListener('valhalla:tema-cambiado', sincronizarTema);
+      window.removeEventListener('valhalla:comercio-actualizado', sincronizarTema);
+      window.removeEventListener('storage', sincronizarTema);
+    };
+  }, [colorTema]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -15,16 +45,15 @@ export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack }) => {
       try {
         setLoading(true);
         // Consultamos la colección store_planes en Firestore
-        const querySnapshot = await getDocs(collection(db, "store_planes"));
-        const planesList = querySnapshot.docs.map(doc => ({
+        const querySnapshot = await getDocs(collection(db, 'store_planes'));
+        const planesList = querySnapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data()
         }));
-        
-        console.log("[PlanSelectionModal] Planes obtenidos de Firestore:", planesList);
+
         setPlanes(planesList);
       } catch (error) {
-        console.error("[PlanSelectionModal] Error al obtener los planes:", error);
+        console.error('[PlanSelectionModal] Error al obtener los planes:', error);
       } finally {
         setLoading(false);
       }
@@ -35,16 +64,19 @@ export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack }) => {
 
   if (!isOpen) return null;
 
+  const tema = obtenerTemaComercio(temaIdActual);
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-300">
       <div className="bg-white border border-slate-100 rounded-3xl max-w-xl w-full p-6 md:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto text-slate-800">
-        
         <div className="mb-6 text-center">
-          <span className="text-[10px] font-black tracking-widest text-emerald-700 uppercase bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+          <span
+            className={`text-[10px] font-black tracking-widest uppercase px-3 py-1 rounded-full border ${tema.badgeSuave}`}
+          >
             Paso 2 de 2: Elegí tu Plan 🚀
           </span>
           <h2 className="text-xl md:text-2xl font-black tracking-tight mt-3 text-slate-900">
-            Selecciona una Suscripción
+            Seleccioná una Suscripción
           </h2>
           <p className="text-xs text-slate-500 mt-1">
             Al elegir tu plan, se abrirá tu WhatsApp para coordinar el alta de forma directa con Valhalla Store.
@@ -62,40 +94,52 @@ export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack }) => {
         ) : (
           <div className="space-y-3">
             {planes.map((plan) => (
-              <div 
+              <div
                 key={plan.id}
-                onClick={() => {
-                  console.log("[PlanSelectionModal] Clic en plan:", plan.id);
-                  onSelectPlan(plan);
-                }}
-                className="bg-slate-50 hover:bg-emerald-50/40 border-2 border-slate-200 hover:border-emerald-500 p-4 rounded-2xl cursor-pointer transition-all flex items-center justify-between gap-4 group shadow-sm"
+                onClick={() => onSelectPlan(plan)}
+                className={`bg-slate-50 hover:bg-slate-50/80 border-2 border-slate-200 ${tema.bordeHover} p-4 rounded-2xl cursor-pointer transition-all flex items-center justify-between gap-4 group shadow-sm`}
               >
-                <div>
-                  <h3 className="text-sm font-black text-emerald-800 group-hover:text-emerald-900 transition-colors">
+                <div className="min-w-0">
+                  <h3
+                    className={`text-sm font-black transition-colors ${tema.textoAcento} ${tema.textoEnlaceHover}`}
+                  >
                     {plan.nombre || plan.id}
                   </h3>
-                  
+
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
                     {plan.precio !== undefined && (
                       <span className="text-slate-700 font-bold bg-white border border-slate-200 px-2 py-0.5 rounded-md shadow-2xs">
-                        Pago único: ${Number(plan.precio).toLocaleString()}
+                        Pago único: ${Number(plan.precio).toLocaleString('es-AR')}
                       </span>
                     )}
                     {plan.mantenimiento_mensual !== undefined && (
                       <span className="text-amber-800 font-bold bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
-                        Mantenimiento: ${Number(plan.mantenimiento_mensual).toLocaleString()} /mes
+                        Mantenimiento: ${Number(plan.mantenimiento_mensual).toLocaleString('es-AR')}{' '}
+                        /mes
                       </span>
                     )}
                   </div>
 
                   <p className="text-[11px] text-slate-500 mt-1.5 flex flex-wrap gap-x-2">
-                    <span>- {plan.maximo_categorias !== undefined ? `${plan.maximo_categorias} Categorías` : 'Categorías ilimitadas'}</span>
-                    <span>- {plan.maximo_productos_por_categoria !== undefined ? `${plan.maximo_productos_por_categoria} Prod. por categoría` : 'Productos ilimitados'}</span>
+                    <span>
+                      -{' '}
+                      {plan.maximo_categorias !== undefined
+                        ? `${plan.maximo_categorias} Categorías`
+                        : 'Categorías ilimitadas'}
+                    </span>
+                    <span>
+                      -{' '}
+                      {plan.maximo_productos_por_categoria !== undefined
+                        ? `${plan.maximo_productos_por_categoria} Prod. por categoría`
+                        : 'Productos ilimitados'}
+                    </span>
                   </p>
                 </div>
-                
-                <span className="bg-emerald-600 group-hover:bg-emerald-700 text-white p-2.5 rounded-xl text-xs font-black shrink-0 flex items-center gap-1 shadow-md transition-colors">
-                  <i className='bx bxl-whatsapp text-lg'></i> Elegir
+
+                <span
+                  className={`p-2.5 rounded-xl text-xs font-black shrink-0 flex items-center gap-1 shadow-md transition-colors ${tema.botonPrimario}`}
+                >
+                  <i className="bx bxl-whatsapp text-lg"></i> Elegir
                 </span>
               </div>
             ))}
@@ -109,7 +153,6 @@ export const PlanSelectionModal = ({ isOpen, onSelectPlan, onBack }) => {
         >
           ← Volver a editar datos del comercio
         </button>
-
       </div>
     </div>
   );
