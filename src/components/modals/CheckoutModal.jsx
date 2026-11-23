@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { db } from '../../services/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  collection,
+  addDoc,
+  runTransaction,
+  serverTimestamp
+} from 'firebase/firestore';
 import { useCart } from '../../context/CartContext';
 import { obtenerTemaComercio } from '../../utils/temasComercio';
 
@@ -14,8 +21,33 @@ const leerColorTema = () => {
   }
 };
 
+const obtenerEncabezadoVenta = (itemsCarrito, nombreTienda) => {
+  const tiendaUpper = String(nombreTienda || 'VALHALLA STORE').toUpperCase();
+  const tieneRelampago = itemsCarrito.some((item) => Boolean(item.soloContado));
+  const tieneOutlet = itemsCarrito.some((item) => Boolean(item.esOutlet));
+  const tieneNormal = itemsCarrito.some((item) => !item.soloContado && !item.esOutlet);
+
+  const tiposActivos = [
+    tieneRelampago ? 'RELÁMPAGO DE CONTADO' : null,
+    tieneOutlet ? 'OUTLET' : null,
+    tieneNormal ? 'NORMAL' : null
+  ].filter(Boolean);
+
+  if (tiposActivos.length === 1) {
+    if (tieneRelampago) {
+      return `⚡ *NUEVA VENTA RELÁMPAGO DE CONTADO - ${tiendaUpper}!*`;
+    }
+    if (tieneOutlet) {
+      return `🏷️ *NUEVA VENTA DE OUTLET - ${tiendaUpper}!*`;
+    }
+    return `🛒 *NUEVA VENTA NORMAL - ${tiendaUpper}!*`;
+  }
+
+  return `🛒 *NUEVO PEDIDO (${tiposActivos.join(' + ')}) - ${tiendaUpper}!*`;
+};
+
 export const CheckoutModal = ({ isOpen, onClose, colorTema }) => {
-  const { storeId } = useParams(); // Obtenemos el ID del comercio directamente de la URL pública
+  const { storeId: storeIdUrl } = useParams();
   const { cart, totalPrice, clearCart } = useCart();
 
   const [nombre, setNombre] = useState('');
@@ -23,7 +55,10 @@ export const CheckoutModal = ({ isOpen, onClose, colorTema }) => {
   const [direccion, setDireccion] = useState('');
   const [telefonoComercio, setTelefonoComercio] = useState('');
   const [nombreComercio, setNombreComercio] = useState('VALHALLA STORE');
+  const [enviando, setEnviando] = useState(false);
   const [temaIdActual, setTemaIdActual] = useState(() => colorTema || leerColorTema());
+
+  const storeIdActivo = storeIdUrl || localStorage.getItem('valhalla_store_id') || '';
 
   useEffect(() => {
     if (colorTema) {
@@ -46,11 +81,9 @@ export const CheckoutModal = ({ isOpen, onClose, colorTema }) => {
     };
   }, [colorTema]);
 
-  // Consultamos Firestore al abrir el modal para asegurar tener el número de WhatsApp del comercio desde cualquier dispositivo
   useEffect(() => {
     const fetchDatosComercio = async () => {
-      if (!storeId) {
-        // Fallback por si se abre desde el panel de admin donde no hay :storeId en la URL
+      if (!storeIdActivo) {
         const comercioLocal = (() => {
           try {
             return JSON.parse(localStorage.getItem('valhalla_comercio')) || {};
@@ -67,7 +100,7 @@ export const CheckoutModal = ({ isOpen, onClose, colorTema }) => {
       }
 
       try {
-        const docRef = doc(db, 'comercios', storeId);
+        const docRef = doc(db, 'comercios', storeIdActivo);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const data = docSnap.data();
@@ -85,13 +118,62 @@ export const CheckoutModal = ({ isOpen, onClose, colorTema }) => {
     if (isOpen) {
       fetchDatosComercio();
     }
-  }, [isOpen, storeId, colorTema]);
+  }, [isOpen, storeIdActivo, colorTema]);
 
   if (!isOpen) return null;
 
   const tema = obtenerTemaComercio(temaIdActual);
 
-  const enviarWhatsApp = (e) => {
+  const descontarStockEnFirestore = async (itemsCarrito) => {
+    if (!storeIdActivo) return;
+
+    const descontarPorProducto = new Map();
+    for (const item of itemsCarrito) {
+      if (item.disponibilidad === 'con_stock' && item.id) {
+        const actual = descontarPorProducto.get(item.id) || 0;
+        descontarPorProducto.set(item.id, actual + (Number(item.quantity) || 0));
+      }
+    }
+
+    for (const [productId, cantidadRestar] of descontarPorProducto.entries()) {
+      if (cantidadRestar <= 0) continue;
+      const prodRef = doc(db, 'comercios', storeIdActivo, 'productos', productId);
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(prodRef);
+        if (!snap.exists()) return;
+        const data = snap.data();
+        if (
+          data.disponibilidad === 'con_stock' &&
+          data.stock !== null &&
+          data.stock !== undefined
+        ) {
+          const stockActual = Math.max(0, Number(data.stock) || 0);
+          const nuevoStock = Math.max(0, stockActual - cantidadRestar);
+          transaction.update(prodRef, { stock: nuevoStock });
+        }
+      });
+    }
+  };
+
+  const registrarPedidoEnFirestore = async (itemsDetallados, tipoVentaResumen) => {
+    if (!storeIdActivo) return;
+    try {
+      await addDoc(collection(db, 'comercios', storeIdActivo, 'pedidos'), {
+        clienteNombre: nombre.trim(),
+        clienteTelefono: telefono.trim(),
+        clienteDireccion: direccion.trim(),
+        tipoVenta: tipoVentaResumen,
+        items: itemsDetallados,
+        total: Number(totalPrice) || 0,
+        atendido: false,
+        creadoEn: serverTimestamp()
+      });
+    } catch (error) {
+      console.warn('No se pudo registrar el pedido en Firestore:', error);
+    }
+  };
+
+  const enviarWhatsApp = async (e) => {
     e.preventDefault();
 
     if (!telefonoComercio) {
@@ -101,28 +183,67 @@ export const CheckoutModal = ({ isOpen, onClose, colorTema }) => {
       return;
     }
 
-    let mensaje = `*¡NUEVO PEDIDO DE ${nombreComercio.toUpperCase()}!* 🛒\n\n`;
-    mensaje += `*Cliente:* ${nombre}\n`;
-    mensaje += `*Teléfono:* ${telefono}\n`;
-    mensaje += `*Dirección:* ${direccion}\n\n`;
-    mensaje += `*DETALLE DEL PEDIDO:*\n`;
+    setEnviando(true);
+    try {
+      await descontarStockEnFirestore(cart);
 
-    cart.forEach((item) => {
-      const subtotalItem =
-        Number(item.precioOferta || item.precio || 0) * Number(item.quantity);
-      mensaje += `- ${item.quantity}x ${item.nombre}`;
-      if (item.talle) mensaje += ` (Talle: ${item.talle})`;
-      mensaje += ` ($${subtotalItem.toLocaleString('es-AR')})\n`;
-    });
+      const encabezado = obtenerEncabezadoVenta(cart, nombreComercio);
+      const tipoVentaResumen = encabezado.replace(/\*/g, '');
 
-    mensaje += `\n*TOTAL A PAGAR: $${totalPrice.toLocaleString('es-AR')}*`;
+      let mensaje = `${encabezado}\n\n`;
+      mensaje += `*Cliente:* ${nombre}\n`;
+      mensaje += `*Teléfono:* ${telefono}\n`;
+      mensaje += `*Dirección:* ${direccion}\n\n`;
+      mensaje += `*DETALLE DEL PEDIDO:*\n`;
 
-    const cleanNumber = telefonoComercio.replace(/\D/g, '');
-    const url = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(mensaje)}`;
+      const itemsResumen = cart.map((item) => {
+        const subtotalItem =
+          Number(item.precioOferta || item.precio || 0) * Number(item.quantity);
+        const notas = [];
+        if (item.soloContado) {
+          notas.push('Relámpago · Solo de contado');
+        } else if (item.esOutlet) {
+          notas.push('Outlet');
+        } else {
+          notas.push('Venta normal');
+        }
+        if (item.talle) notas.push(`Talle: ${item.talle}`);
+        if (item.esPorPedido) {
+          notas.push(item.demoraPedido ? `Por pedido · ${item.demoraPedido}` : 'Por pedido');
+        }
 
-    window.open(url, '_blank');
-    clearCart();
-    onClose();
+        const extraTexto = notas.length > 0 ? ` [${notas.join(' · ')}]` : '';
+        mensaje += `- ${item.quantity}x ${item.nombre}${extraTexto} ($${subtotalItem.toLocaleString(
+          'es-AR'
+        )})\n`;
+
+        return {
+          id: item.id || '',
+          nombre: item.nombre || '',
+          cantidad: Number(item.quantity) || 1,
+          subtotal: subtotalItem,
+          soloContado: Boolean(item.soloContado),
+          esOutlet: Boolean(item.esOutlet),
+          esPorPedido: Boolean(item.esPorPedido)
+        };
+      });
+
+      mensaje += `\n*TOTAL A PAGAR: $${totalPrice.toLocaleString('es-AR')}*`;
+
+      await registrarPedidoEnFirestore(itemsResumen, tipoVentaResumen);
+
+      const cleanNumber = telefonoComercio.replace(/\D/g, '');
+      const url = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(mensaje)}`;
+
+      window.open(url, '_blank');
+      clearCart();
+      onClose();
+    } catch (error) {
+      console.error('Error al procesar el pedido:', error);
+      alert('Ocurrió un problema al enviar el pedido. Intentá nuevamente.');
+    } finally {
+      setEnviando(false);
+    }
   };
 
   return (
@@ -213,9 +334,10 @@ export const CheckoutModal = ({ isOpen, onClose, colorTema }) => {
 
           <button
             type="submit"
-            className={`w-full font-black py-3.5 rounded-2xl shadow-lg uppercase text-xs md:text-sm tracking-wider flex items-center justify-center gap-2 transition-transform active:scale-95 mt-2 cursor-pointer ${tema.botonPrimario}`}
+            disabled={enviando}
+            className={`w-full disabled:opacity-60 font-black py-3.5 rounded-2xl shadow-lg uppercase text-xs md:text-sm tracking-wider flex items-center justify-center gap-2 transition-transform active:scale-95 mt-2 cursor-pointer ${tema.botonPrimario}`}
           >
-            Enviar Pedido por WhatsApp 🚀
+            {enviando ? 'Procesando pedido...' : 'Enviar Pedido por WhatsApp 🚀'}
           </button>
         </form>
       </div>

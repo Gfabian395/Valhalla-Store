@@ -4,8 +4,8 @@ import { db } from '../services/firebase';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { ProductCard } from '../components/store/ProductCard';
 import { CategoryNav } from '../components/store/CategoryNav';
-import { CartDrawer } from '../components/store/CartDrawer'; // 🟢 Carrito flotante inferior
-import { CheckoutModal } from '../components/modals/CheckoutModal'; // 🟢 Modal de envío a WhatsApp
+import { CartDrawer } from '../components/store/CartDrawer';
+import { CheckoutModal } from '../components/modals/CheckoutModal';
 import { useCart } from '../context/CartContext';
 import { obtenerTemaComercio } from '../utils/temasComercio';
 
@@ -22,8 +22,57 @@ const obtenerImagenesProducto = (product) => {
   return lista.slice(0, MAX_IMAGENES_PRODUCTO);
 };
 
+const esProductoOutlet = (product) =>
+  product.tipoPromo === 'outlet' ||
+  String(product.etiqueta || '').trim().toLowerCase() === 'outlet';
+
+const esProductoRelampagoMarcado = (product) =>
+  product.tipoPromo === 'relampago_contado' ||
+  product.soloContado === true ||
+  String(product.etiqueta || '').toLowerCase().includes('relampago') ||
+  String(product.etiqueta || '').toLowerCase().includes('relámpago');
+
+const coincideConBusqueda = (product, termino) => {
+  const q = String(termino || '').trim().toLowerCase();
+  if (!q) return true;
+
+  const textosFicha = Array.isArray(product.fichaTecnica)
+    ? product.fichaTecnica.map((item) => `${item?.clave || ''} ${item?.valor || ''}`).join(' ')
+    : product.fichaTecnica && typeof product.fichaTecnica === 'object'
+    ? Object.entries(product.fichaTecnica)
+        .map(([k, v]) => `${k} ${v}`)
+        .join(' ')
+    : '';
+
+  const campos = [
+    product.nombre,
+    product.categoria,
+    product.descripcion,
+    product.etiqueta,
+    product.tipoPromo,
+    product.disponibilidad,
+    product.demoraPedido,
+    textosFicha
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return campos.includes(q);
+};
+
+const formatearRestante = (msRestantes) => {
+  const totalSeg = Math.max(0, Math.floor(msRestantes / 1000));
+  const horas = Math.floor(totalSeg / 3600);
+  const minutos = Math.floor((totalSeg % 3600) / 60);
+  const segundos = totalSeg % 60;
+  return `${String(horas).padStart(2, '0')}:${String(minutos).padStart(2, '0')}:${String(
+    segundos
+  ).padStart(2, '0')}`;
+};
+
 export const CatalogoPublico = () => {
-  const { storeId } = useParams(); // Obtenemos el ID del comercio desde la URL
+  const { storeId } = useParams();
   const { totalItems } = useCart();
 
   const [comercio, setComercio] = useState(null);
@@ -31,15 +80,21 @@ export const CatalogoPublico = () => {
   const [categorias, setCategorias] = useState(['Todos']);
   const [loading, setLoading] = useState(true);
   const [filtroCat, setFiltroCat] = useState('Todos');
+  const [busqueda, setBusqueda] = useState('');
+  const [ahoraMs, setAhoraMs] = useState(() => Date.now());
   const [errorTienda, setErrorTienda] = useState(false);
   const [bannerError, setBannerError] = useState(false);
 
-  // Estado del carrusel ampliado al hacer clic en una imagen de producto
   const [carruselProducto, setCarruselProducto] = useState(null);
   const [carruselIdx, setCarruselIdx] = useState(0);
-
-  // 🟢 Estado para abrir y cerrar el modal de checkout (WhatsApp)
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setAhoraMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const fetchTiendaPublica = async () => {
@@ -53,8 +108,8 @@ export const CatalogoPublico = () => {
         setLoading(true);
         setBannerError(false);
         setFiltroCat('Todos');
+        setBusqueda('');
 
-        // 1. Buscamos los datos generales del comercio en la colección 'comercios'
         const comercioDocRef = doc(db, 'comercios', storeId);
         const comercioSnap = await getDoc(comercioDocRef);
 
@@ -66,7 +121,6 @@ export const CatalogoPublico = () => {
           return;
         }
 
-        // 2. Obtenemos los productos de este comercio específico
         const prodSnapshot = await getDocs(collection(db, 'comercios', storeId, 'productos'));
         const listaProds = prodSnapshot.docs.map((item) => ({
           id: item.id,
@@ -74,7 +128,6 @@ export const CatalogoPublico = () => {
         }));
         setProductos(listaProds);
 
-        // 3. Obtenemos las categorías de este comercio específico
         const catSnapshot = await getDocs(collection(db, 'comercios', storeId, 'categorias'));
         const listaCats = catSnapshot.docs.map((item) => item.data().nombre).filter(Boolean);
         setCategorias(['Todos', ...listaCats]);
@@ -90,6 +143,12 @@ export const CatalogoPublico = () => {
   }, [storeId]);
 
   const tema = obtenerTemaComercio(comercio?.colorTema || 'emerald');
+
+  const relampagoExpiraEn = comercio?.relampagoExpiraEn || null;
+  const relampagoActivo = Boolean(relampagoExpiraEn && Number(relampagoExpiraEn) > ahoraMs);
+  const tiempoRestanteRelampago = relampagoActivo
+    ? formatearRestante(Number(relampagoExpiraEn) - ahoraMs)
+    : '00:00:00';
 
   const handleAbrirCarrusel = (product, indiceInicial = 0) => {
     const imgs = obtenerImagenesProducto(product);
@@ -118,14 +177,20 @@ export const CatalogoPublico = () => {
     setCarruselIdx((prev) => (prev + 1) % imgs.length);
   };
 
-  const productosFiltrados =
-    filtroCat === 'Todos'
-      ? productos
-      : productos.filter(
-          (p) => p.categoria?.trim().toLowerCase() === filtroCat.trim().toLowerCase()
-        );
+  const baseFiltrada = productos.filter((p) => {
+    const pasaCategoria =
+      filtroCat === 'Todos' ||
+      p.categoria?.trim().toLowerCase() === filtroCat.trim().toLowerCase();
+    const pasaBusqueda = coincideConBusqueda(p, busqueda);
+    return pasaCategoria && pasaBusqueda;
+  });
 
-  // Soporta bannerUrl o banner en el documento del comercio
+  const productosRelampago = relampagoActivo
+    ? baseFiltrada.filter((p) => esProductoRelampagoMarcado(p))
+    : [];
+  const productosOutlet = baseFiltrada.filter((p) => esProductoOutlet(p));
+  const productosCatalogo = baseFiltrada;
+
   const urlBannerComercio = (comercio?.bannerUrl || comercio?.banner || '').trim();
   const bannerSrc = !bannerError && urlBannerComercio ? urlBannerComercio : BANNER_POR_DEFECTO;
   const nombreTienda = comercio?.name || comercio?.nombre || 'Tienda Digital';
@@ -166,7 +231,6 @@ export const CatalogoPublico = () => {
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-clip bg-slate-50 text-slate-900 pb-28">
-      {/* Navbar Superior Público para el Cliente */}
       <header
         className={`bg-white/95 backdrop-blur-md sticky top-0 z-40 shadow-xs border-b-2 ${tema.bordeDestacado}`}
       >
@@ -206,12 +270,10 @@ export const CatalogoPublico = () => {
         </div>
       </header>
 
-      {/* Contenido del Catálogo */}
-      <main className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 min-w-0">
-        {/* Banner Personalizado del Comercio */}
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 min-w-0 space-y-6">
         <section
           aria-label={`Banner de ${nombreTienda}`}
-          className="relative w-full h-36 sm:h-56 md:h-64 rounded-3xl overflow-hidden bg-slate-900 border border-slate-200 shadow-xs mb-4 sm:mb-6"
+          className="relative w-full h-36 sm:h-56 md:h-64 rounded-3xl overflow-hidden bg-slate-900 border border-slate-200 shadow-xs"
         >
           <img
             src={bannerSrc}
@@ -233,7 +295,6 @@ export const CatalogoPublico = () => {
           </div>
         </section>
 
-        {/* Navegación de Categorías */}
         <CategoryNav
           categorias={categorias}
           categoriaSeleccionada={filtroCat}
@@ -243,28 +304,123 @@ export const CatalogoPublico = () => {
           tema={tema}
         />
 
-        {productosFiltrados.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-3xl border border-slate-200 p-8 shadow-xs mt-6">
-            <p className="text-slate-600 font-bold text-sm">
-              No hay productos cargados en esta categoría actualmente.
-            </p>
+        {/* Buscador del Comercio */}
+        <div className="bg-white border border-slate-200 rounded-3xl p-3.5 sm:p-4 shadow-xs min-w-0">
+          <div className="relative flex items-center">
+            <i
+              className={`bx bx-search text-lg absolute left-3.5 pointer-events-none ${tema.loaderTexto}`}
+            ></i>
+            <input
+              type="text"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder={`Buscar en ${nombreTienda}...`}
+              className={`w-full bg-slate-50 border border-slate-200 rounded-2xl pl-10 pr-9 py-2.5 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-2 outline-none transition-all ${tema.inputFoco}`}
+            />
+            {busqueda && (
+              <button
+                type="button"
+                onClick={() => setBusqueda('')}
+                aria-label="Limpiar búsqueda"
+                className="absolute right-2.5 w-6 h-6 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-black flex items-center justify-center cursor-pointer"
+              >
+                ×
+              </button>
+            )}
           </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4 mt-6 min-w-0">
-            {productosFiltrados.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                colorTema={tema.id}
-                tema={tema}
-                onImageClick={handleAbrirCarrusel}
-              />
-            ))}
-          </div>
+        </div>
+
+        {/* Sección Fuego: Oferta Relámpago (Solo de Contado) - Desaparece automáticamente al vencer el tiempo */}
+        {relampagoActivo && productosRelampago.length > 0 && (
+          <section className="bg-orange-50/70 border-2 border-orange-300 rounded-3xl p-4 sm:p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="bg-orange-600 text-white text-xs font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-xs">
+                🔥 Oferta Relámpago · Solo de Contado
+              </span>
+              <span className="font-mono text-xs sm:text-sm font-black bg-slate-900 text-orange-300 px-3 py-1 rounded-xl">
+                Termina en: {tiempoRestanteRelampago}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4 min-w-0">
+              {productosRelampago.map((product) => (
+                <ProductCard
+                  key={`relampago-${product.id}`}
+                  product={product}
+                  relampagoActivo={relampagoActivo}
+                  colorTema={tema.id}
+                  tema={tema}
+                  onImageClick={handleAbrirCarrusel}
+                />
+              ))}
+            </div>
+          </section>
         )}
+
+        {/* Sección Outlet */}
+        {productosOutlet.length > 0 && (
+          <section className="bg-white border-2 border-slate-200 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xs">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900">
+                🏷️ Outlet
+              </h2>
+              <span className="text-[11px] font-bold text-slate-500">
+                {productosOutlet.length} {productosOutlet.length === 1 ? 'producto' : 'productos'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4 min-w-0">
+              {productosOutlet.map((product) => (
+                <ProductCard
+                  key={`outlet-${product.id}`}
+                  product={product}
+                  relampagoActivo={relampagoActivo}
+                  colorTema={tema.id}
+                  tema={tema}
+                  onImageClick={handleAbrirCarrusel}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Catálogo General */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900">
+              {filtroCat === 'Todos' ? 'Todos los Productos' : `Categoría: ${filtroCat}`}
+            </h2>
+            <span className="text-[11px] font-bold text-slate-500">
+              {productosCatalogo.length}{' '}
+              {productosCatalogo.length === 1 ? 'resultado' : 'resultados'}
+            </span>
+          </div>
+
+          {productosCatalogo.length === 0 ? (
+            <div className="text-center py-20 bg-white rounded-3xl border border-slate-200 p-8 shadow-xs">
+              <p className="text-slate-600 font-bold text-sm">
+                {busqueda.trim()
+                  ? `No se encontraron productos para "${busqueda.trim()}" en ${nombreTienda}.`
+                  : 'No hay productos cargados en esta categoría actualmente.'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4 min-w-0">
+              {productosCatalogo.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  relampagoActivo={relampagoActivo}
+                  colorTema={tema.id}
+                  tema={tema}
+                  onImageClick={handleAbrirCarrusel}
+                />
+              ))}
+            </div>
+          )}
+        </section>
       </main>
 
-      {/* Modal Carrusel Ampliado con Transición Suave de Desvanecimiento */}
       {carruselProducto && (
         <div
           onClick={handleCerrarCarrusel}
@@ -364,14 +520,12 @@ export const CatalogoPublico = () => {
         </div>
       )}
 
-      {/* 🟢 CARRITO FLOTANTE CON EFECTO GLASS & BLUR */}
       <CartDrawer
         onOpenCheckout={() => setIsCheckoutOpen(true)}
         colorTema={tema.id}
         tema={tema}
       />
 
-      {/* 🟢 MODAL DE CHECKOUT Y DATOS DE ENVÍO PARA WHATSAPP */}
       <CheckoutModal
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}

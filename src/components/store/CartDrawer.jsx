@@ -13,7 +13,7 @@ const leerColorTema = () => {
 
 export const CartDrawer = ({ onOpenCheckout, colorTema, tema: temaProp }) => {
   const { totalPrice, totalItems, cart, updateQuantity } = useCart();
-  const [isOpen, setIsOpen] = useState(false); // Estado para abrir/cerrar el panel flotante
+  const [isOpen, setIsOpen] = useState(false);
   const [temaIdActual, setTemaIdActual] = useState(
     () => temaProp?.id || colorTema || leerColorTema()
   );
@@ -49,7 +49,6 @@ export const CartDrawer = ({ onOpenCheckout, colorTema, tema: temaProp }) => {
     <div
       className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-xl bg-white/85 backdrop-blur-xl text-slate-900 border-2 ${tema.bordeDestacado} rounded-3xl p-3.5 md:p-4 shadow-2xl flex flex-col gap-3 transition-all`}
     >
-      {/* 🟢 PANEL DESPLEGABLE CON EFECTO GLASS & BLUR (Se muestra solo si isOpen es true) */}
       {isOpen && (
         <div className="max-h-56 overflow-y-auto space-y-2 pr-1 custom-scrollbar border-b border-slate-200/80 pb-3">
           <div className="flex items-center justify-between pb-1">
@@ -70,10 +69,16 @@ export const CartDrawer = ({ onOpenCheckout, colorTema, tema: temaProp }) => {
           {cart.map((item) => {
             const subtotalItem =
               Number(item.precioOferta || item.precio || 0) * Number(item.quantity);
+            const stockMax =
+              item.stockMaximo !== undefined && item.stockMaximo !== null
+                ? Number(item.stockMaximo)
+                : null;
+            const llegoAlMaximo = stockMax !== null && Number(item.quantity) >= stockMax;
+
             return (
               <div
                 key={item.cartItemId || item.id}
-                className="flex items-center justify-between bg-white/90 border border-slate-200/90 rounded-2xl p-2.5 shadow-2xs"
+                className="flex items-center justify-between bg-white/90 border border-slate-200/90 rounded-2xl p-2.5 shadow-2xs gap-2"
               >
                 <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
                   {item.imagen && (
@@ -85,20 +90,31 @@ export const CartDrawer = ({ onOpenCheckout, colorTema, tema: temaProp }) => {
                   )}
                   <div className="truncate">
                     <h4 className="text-xs font-black text-slate-800 truncate">{item.nombre}</h4>
-                    {item.talle && (
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md border inline-block mt-0.5 ${tema.badgeSuave}`}
-                      >
-                        Talle: {item.talle}
-                      </span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                      {item.talle && (
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md border inline-block ${tema.badgeSuave}`}
+                        >
+                          Talle: {item.talle}
+                        </span>
+                      )}
+                      {item.soloContado && (
+                        <span className="text-[10px] font-black text-amber-900 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md">
+                          Solo de contado
+                        </span>
+                      )}
+                      {item.esPorPedido && (
+                        <span className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md">
+                          Por pedido
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[11px] font-bold text-slate-500 block mt-0.5">
                       ${subtotalItem.toLocaleString('es-AR')}
                     </span>
                   </div>
                 </div>
 
-                {/* Controles de Cantidad */}
                 <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shrink-0 shadow-2xs">
                   <button
                     type="button"
@@ -112,8 +128,13 @@ export const CartDrawer = ({ onOpenCheckout, colorTema, tema: temaProp }) => {
                   </span>
                   <button
                     type="button"
+                    disabled={llegoAlMaximo}
                     onClick={() => updateQuantity(item.cartItemId || item.id, 1)}
-                    className={`w-6 h-6 rounded-lg font-bold flex items-center justify-center text-xs transition-colors cursor-pointer ${tema.botonPrimario}`}
+                    className={`w-6 h-6 rounded-lg font-bold flex items-center justify-center text-xs transition-colors ${
+                      llegoAlMaximo
+                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                        : `${tema.botonPrimario} cursor-pointer`
+                    }`}
                   >
                     +
                   </button>
@@ -124,7 +145,6 @@ export const CartDrawer = ({ onOpenCheckout, colorTema, tema: temaProp }) => {
         </div>
       )}
 
-      {/* 🟢 BARRA INFERIOR FLOTANTE (Haz clic aquí para desplegar/contraer el carrito o ver totales) */}
       <div
         className="flex items-center justify-between gap-2 cursor-pointer select-none min-w-0"
         onClick={() => setIsOpen(!isOpen)}
@@ -158,7 +178,7 @@ export const CartDrawer = ({ onOpenCheckout, colorTema, tema: temaProp }) => {
         <button
           type="button"
           onClick={(e) => {
-            e.stopPropagation(); // Evita que se abra/cierre el panel al hacer clic en el botón de enviar
+            e.stopPropagation();
             onOpenCheckout();
           }}
           className={`font-black px-3.5 sm:px-4 md:px-5 py-2.5 md:py-3 rounded-2xl shadow-lg flex items-center gap-1.5 sm:gap-2 uppercase tracking-wide text-[11px] sm:text-xs md:text-sm transition-transform active:scale-95 cursor-pointer shrink-0 whitespace-nowrap ${tema.botonPrimario}`}

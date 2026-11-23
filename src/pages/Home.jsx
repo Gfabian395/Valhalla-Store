@@ -2,14 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { ProductCard } from '../components/store/ProductCard';
 import { CategoryNav } from '../components/store/CategoryNav';
 import { db } from '../services/firebase';
-import { collection, getDocs, addDoc, doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import {
+  collection,
+  getDocs,
+  addDoc,
+  doc,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp
+} from 'firebase/firestore';
 import { LISTA_TEMAS_COMERCIO, obtenerTemaComercio } from '../utils/temasComercio';
 
 const BANNER_POR_DEFECTO = '/StoreGladius.png';
 const MAX_IMAGENES_PRODUCTO = 3;
 const MAX_ANCHO_IMAGEN = 640;
 const CALIDAD_JPEG = 0.62;
-const LIMITE_BYTES_FIRESTORE_SEGURO = 900000; // Margen seguro debajo de 1.048.576 bytes
+const LIMITE_BYTES_FIRESTORE_SEGURO = 900000;
 const CLAVES_BASE_FICHA = ['marca', 'material', 'medidas'];
 
 const estadoInicialProducto = (categoriaSugerida = '') => ({
@@ -19,17 +28,31 @@ const estadoInicialProducto = (categoriaSugerida = '') => ({
   imagen: '',
   imagenes: [],
   categoria: categoriaSugerida,
+  tipoPromo: 'oferta',
   etiqueta: 'OFERTA',
+  soloContado: false,
+  precioRelampago: '',
+  precioOutlet: '',
+  motivoOutlet: '',
+  disponibilidad: 'normal', // 'normal' | 'con_stock' | 'por_pedido'
+  stock: '',
+  stockPorTalle: {}, // { L: 2, XL: 1 }
+  demoraPedido: '',
   usaTalles: false,
-  tallesInput: '', // Input de texto editable por el usuario
+  tallesInput: '',
   descripcion: '',
   fichaMarca: '',
   fichaMaterial: '',
   fichaMedidas: '',
-  camposExtra: [] // Array de { id, clave, valor } para litros, capacidad, etc.
+  camposExtra: []
 });
 
-// Comprime y redimensiona una imagen en el navegador para evitar exceder 1 MiB en Firestore
+const parsearTallesTexto = (texto) =>
+  String(texto || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+
 const comprimirImagenEnNavegador = (
   file,
   maxAncho = MAX_ANCHO_IMAGEN,
@@ -77,7 +100,6 @@ const estimarBytesUtf8 = (valor) => {
   }
 };
 
-// Re-comprime imágenes en memoria si el documento completo supera el margen seguro
 const comprimirListaSiExcedeLimite = async (imagenesActuales, armarPayloadFn) => {
   let lista = [...imagenesActuales];
   if (estimarBytesUtf8(armarPayloadFn(lista)) <= LIMITE_BYTES_FIRESTORE_SEGURO) {
@@ -169,11 +191,80 @@ const obtenerImagenesProducto = (product) => {
   return lista.slice(0, MAX_IMAGENES_PRODUCTO);
 };
 
+const esProductoOutlet = (product) =>
+  product.tipoPromo === 'outlet' ||
+  product.enOutlet === true ||
+  String(product.etiqueta || '').trim().toLowerCase() === 'outlet';
+
+const esProductoRelampagoMarcado = (product) =>
+  product.tipoPromo === 'relampago_contado' ||
+  product.enRelampago === true ||
+  product.soloContado === true ||
+  String(product.etiqueta || '').toLowerCase().includes('relampago') ||
+  String(product.etiqueta || '').toLowerCase().includes('relámpago');
+
+const coincideConBusqueda = (product, termino) => {
+  const q = String(termino || '').trim().toLowerCase();
+  if (!q) return true;
+
+  const textosFicha = Array.isArray(product.fichaTecnica)
+    ? product.fichaTecnica.map((item) => `${item?.clave || ''} ${item?.valor || ''}`).join(' ')
+    : product.fichaTecnica && typeof product.fichaTecnica === 'object'
+    ? Object.entries(product.fichaTecnica)
+        .map(([k, v]) => `${k} ${v}`)
+        .join(' ')
+    : '';
+
+  const campos = [
+    product.nombre,
+    product.categoria,
+    product.descripcion,
+    product.motivoOutlet,
+    product.etiqueta,
+    product.tipoPromo,
+    product.disponibilidad,
+    product.demoraPedido,
+    textosFicha
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return campos.includes(q);
+};
+
+const formatearRestante = (msRestantes) => {
+  const totalSeg = Math.max(0, Math.floor(msRestantes / 1000));
+  const horas = Math.floor(totalSeg / 3600);
+  const minutos = Math.floor((totalSeg % 3600) / 60);
+  const segundos = totalSeg % 60;
+  return `${String(horas).padStart(2, '0')}:${String(minutos).padStart(2, '0')}:${String(
+    segundos
+  ).padStart(2, '0')}`;
+};
+
 export const Home = ({ vistaAdmin }) => {
   const [productos, setProductos] = useState([]);
   const [categoriasDocs, setCategoriasDocs] = useState([]);
+  const [pedidosRecientes, setPedidosRecientes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtroCat, setFiltroCat] = useState('Todos');
+  const [busqueda, setBusqueda] = useState('');
+
+  // Control de cuenta regresiva para Oferta Relámpago (Solo de Contado)
+  const [horasRelampagoInput, setHorasRelampagoInput] = useState('3');
+  const [relampagoExpiraEn, setRelampagoExpiraEn] = useState(null);
+  const [ahoraMs, setAhoraMs] = useState(() => Date.now());
+
+  // Modales rápidos al pasar un producto a Relámpago o a Outlet
+  const [modalRelampagoProd, setModalRelampagoProd] = useState(null);
+  const [precioRelampagoInput, setPrecioRelampagoInput] = useState('');
+  const [horasModalRelampago, setHorasModalRelampago] = useState('3');
+  const [guardandoRapido, setGuardandoRapido] = useState(false);
+
+  const [modalOutletProd, setModalOutletProd] = useState(null);
+  const [precioOutletInput, setPrecioOutletInput] = useState('');
+  const [motivoOutletInput, setMotivoOutletInput] = useState('');
 
   const [modalProdOpen, setModalProdOpen] = useState(false);
   const [modalCatOpen, setModalCatOpen] = useState(false);
@@ -182,7 +273,6 @@ export const Home = ({ vistaAdmin }) => {
   const [guardandoProd, setGuardandoProd] = useState(false);
   const [avisoProd, setAvisoProd] = useState('');
 
-  // Estado del carrusel ampliado al hacer clic en una imagen de producto
   const [carruselProducto, setCarruselProducto] = useState(null);
   const [carruselIdx, setCarruselIdx] = useState(0);
 
@@ -204,12 +294,22 @@ export const Home = ({ vistaAdmin }) => {
     }
   })();
 
-  const [colorTema, setColorTema] = useState(
-    () => comercioGuardado.colorTema || 'emerald'
-  );
+  const [colorTema, setColorTema] = useState(() => comercioGuardado.colorTema || 'emerald');
   const [guardandoTema, setGuardandoTema] = useState(false);
 
   const tema = obtenerTemaComercio(colorTema);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setAhoraMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const relampagoActivo = Boolean(relampagoExpiraEn && Number(relampagoExpiraEn) > ahoraMs);
+  const tiempoRestanteRelampago = relampagoActivo
+    ? formatearRestante(Number(relampagoExpiraEn) - ahoraMs)
+    : '00:00:00';
 
   const categoriasParaNav = [{ id: '__todos__', nombre: 'Todos' }, ...categoriasDocs];
   const categoriasEditables = categoriasDocs.map((c) => c.nombre).filter(Boolean);
@@ -218,6 +318,7 @@ export const Home = ({ vistaAdmin }) => {
     if (!storeId) {
       setBannerComercio((comercioGuardado.bannerUrl || comercioGuardado.banner || '').trim());
       setColorTema(comercioGuardado.colorTema || 'emerald');
+      setRelampagoExpiraEn(comercioGuardado.relampagoExpiraEn || null);
       setLoading(false);
       return;
     }
@@ -226,7 +327,6 @@ export const Home = ({ vistaAdmin }) => {
       setLoading(true);
       setBannerError(false);
 
-      // Obtenemos datos del comercio para sincronizar el banner y el tema actual
       const comercioDocRef = doc(db, 'comercios', storeId);
       const comercioSnap = await getDoc(comercioDocRef);
       if (comercioSnap.exists()) {
@@ -238,20 +338,24 @@ export const Home = ({ vistaAdmin }) => {
           ''
         ).trim();
         const temaActual = dataComercio.colorTema || comercioGuardado.colorTema || 'emerald';
+        const expiraActual = dataComercio.relampagoExpiraEn || null;
         setBannerComercio(urlActual);
         setColorTema(temaActual);
+        setRelampagoExpiraEn(expiraActual);
         localStorage.setItem(
           'valhalla_comercio',
           JSON.stringify({
             ...comercioGuardado,
             ...dataComercio,
             bannerUrl: urlActual,
-            colorTema: temaActual
+            colorTema: temaActual,
+            relampagoExpiraEn: expiraActual
           })
         );
       } else {
         setBannerComercio((comercioGuardado.bannerUrl || comercioGuardado.banner || '').trim());
         setColorTema(comercioGuardado.colorTema || 'emerald');
+        setRelampagoExpiraEn(comercioGuardado.relampagoExpiraEn || null);
       }
 
       const prodSnapshot = await getDocs(collection(db, 'comercios', storeId, 'productos'));
@@ -272,6 +376,20 @@ export const Home = ({ vistaAdmin }) => {
       if (filtroCat !== 'Todos' && !nombresActuales.includes(filtroCat)) {
         setFiltroCat('Todos');
       }
+
+      try {
+        const pedidosSnap = await getDocs(collection(db, 'comercios', storeId, 'pedidos'));
+        const listaPedidos = pedidosSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => {
+            const ta = a.creadoEn?.seconds || 0;
+            const tb = b.creadoEn?.seconds || 0;
+            return tb - ta;
+          });
+        setPedidosRecientes(listaPedidos);
+      } catch {
+        setPedidosRecientes([]);
+      }
     } catch (error) {
       console.error('Aviso al sincronizar con Firebase:', error);
     } finally {
@@ -282,6 +400,288 @@ export const Home = ({ vistaAdmin }) => {
   useEffect(() => {
     fetchDataFromFirebase();
   }, [storeId]);
+
+  const actualizarExpiracionRelampago = async (nuevaExpiracion) => {
+    setRelampagoExpiraEn(nuevaExpiracion);
+    setAhoraMs(Date.now());
+    const comercioActual = (() => {
+      try {
+        return JSON.parse(localStorage.getItem('valhalla_comercio')) || {};
+      } catch {
+        return {};
+      }
+    })();
+    localStorage.setItem(
+      'valhalla_comercio',
+      JSON.stringify({ ...comercioActual, relampagoExpiraEn: nuevaExpiracion })
+    );
+    if (storeId) {
+      await updateDoc(doc(db, 'comercios', storeId), {
+        relampagoExpiraEn: nuevaExpiracion
+      });
+    }
+  };
+
+  const handleIniciarRelampago = async (e) => {
+    e.preventDefault();
+    const horas = Math.max(0.1, Number(horasRelampagoInput) || 3);
+    const nuevaExpiracion = Date.now() + Math.round(horas * 3600 * 1000);
+    try {
+      await actualizarExpiracionRelampago(nuevaExpiracion);
+    } catch (error) {
+      console.error('Error al iniciar cuenta regresiva relámpago:', error);
+    }
+  };
+
+  const handleFinalizarRelampago = async () => {
+    try {
+      await actualizarExpiracionRelampago(null);
+    } catch (error) {
+      console.error('Error al finalizar oferta relámpago:', error);
+    }
+  };
+
+  const handleToggleOutlet = async (product) => {
+    if (!storeId || !product?.id) return;
+
+    if (esProductoOutlet(product)) {
+      const actualizado = {
+        tipoPromo: 'oferta',
+        enOutlet: false,
+        precioOutlet: null,
+        motivoOutlet: '',
+        etiqueta: 'OFERTA'
+      };
+      try {
+        await updateDoc(doc(db, 'comercios', storeId, 'productos', product.id), actualizado);
+        setProductos((prev) =>
+          prev.map((p) => (p.id === product.id ? { ...p, ...actualizado } : p))
+        );
+      } catch (error) {
+        console.error('Error al quitar de Outlet:', error);
+      }
+      return;
+    }
+
+    setModalOutletProd(product);
+    setPrecioOutletInput(
+      product.precioOutlet ? String(product.precioOutlet) : String(product.precioOferta || '')
+    );
+    setMotivoOutletInput(product.motivoOutlet || '');
+  };
+
+  const handleConfirmarOutlet = async (e) => {
+    e.preventDefault();
+    if (!storeId || !modalOutletProd?.id) return;
+    const precioRebaja = Number(precioOutletInput);
+    if (!precioRebaja || precioRebaja <= 0) return;
+
+    setGuardandoRapido(true);
+    const actualizado = {
+      tipoPromo: 'outlet',
+      enOutlet: true,
+      enRelampago: false,
+      soloContado: false,
+      precioOutlet: precioRebaja,
+      motivoOutlet: motivoOutletInput.trim(),
+      etiqueta: 'OUTLET'
+    };
+
+    try {
+      await updateDoc(
+        doc(db, 'comercios', storeId, 'productos', modalOutletProd.id),
+        actualizado
+      );
+      setProductos((prev) =>
+        prev.map((p) => (p.id === modalOutletProd.id ? { ...p, ...actualizado } : p))
+      );
+      setModalOutletProd(null);
+    } catch (error) {
+      console.error('Error al guardar producto en Outlet:', error);
+    } finally {
+      setGuardandoRapido(false);
+    }
+  };
+
+  const handleToggleRelampago = async (product) => {
+    if (!storeId || !product?.id) return;
+
+    if (esProductoRelampagoMarcado(product)) {
+      const actualizado = {
+        tipoPromo: 'oferta',
+        enRelampago: false,
+        soloContado: false,
+        precioRelampago: null,
+        etiqueta: 'OFERTA'
+      };
+      try {
+        await updateDoc(doc(db, 'comercios', storeId, 'productos', product.id), actualizado);
+        setProductos((prev) =>
+          prev.map((p) => (p.id === product.id ? { ...p, ...actualizado } : p))
+        );
+      } catch (error) {
+        console.error('Error al quitar de Relámpago:', error);
+      }
+      return;
+    }
+
+    setModalRelampagoProd(product);
+    setPrecioRelampagoInput(
+      product.precioRelampago
+        ? String(product.precioRelampago)
+        : String(product.precioOferta || '')
+    );
+    setHorasModalRelampago(horasRelampagoInput || '3');
+  };
+
+  const handleConfirmarRelampago = async (e) => {
+    e.preventDefault();
+    if (!storeId || !modalRelampagoProd?.id) return;
+    const precioMomentaneo = Number(precioRelampagoInput);
+    if (!precioMomentaneo || precioMomentaneo <= 0) return;
+
+    setGuardandoRapido(true);
+    const actualizado = {
+      tipoPromo: 'relampago_contado',
+      enRelampago: true,
+      enOutlet: false,
+      soloContado: true,
+      precioRelampago: precioMomentaneo,
+      etiqueta: 'RELÁMPAGO · CONTADO'
+    };
+
+    try {
+      await updateDoc(
+        doc(db, 'comercios', storeId, 'productos', modalRelampagoProd.id),
+        actualizado
+      );
+      setProductos((prev) =>
+        prev.map((p) => (p.id === modalRelampagoProd.id ? { ...p, ...actualizado } : p))
+      );
+
+      if (!relampagoActivo) {
+        const horas = Math.max(0.1, Number(horasModalRelampago) || 3);
+        const expDefault = Date.now() + Math.round(horas * 3600 * 1000);
+        setHorasRelampagoInput(String(horas));
+        await actualizarExpiracionRelampago(expDefault);
+      }
+
+      setModalRelampagoProd(null);
+    } catch (error) {
+      console.error('Error al activar producto en Oferta Relámpago:', error);
+    } finally {
+      setGuardandoRapido(false);
+    }
+  };
+
+  const handleTogglePorPedido = async (product) => {
+    if (!storeId || !product?.id) return;
+    const siguientePorPedido = product.disponibilidad !== 'por_pedido';
+    const actualizado = {
+      disponibilidad: siguientePorPedido ? 'por_pedido' : 'normal',
+      stock: siguientePorPedido ? null : product.stock ?? null
+    };
+    try {
+      await updateDoc(doc(db, 'comercios', storeId, 'productos', product.id), actualizado);
+      setProductos((prev) =>
+        prev.map((p) => (p.id === product.id ? { ...p, ...actualizado } : p))
+      );
+    } catch (error) {
+      console.error('Error al actualizar Por Pedido:', error);
+    }
+  };
+
+  const devolverStockPorPedidoRechazado = async (pedido) => {
+    if (!storeId || !Array.isArray(pedido?.items) || pedido.items.length === 0) return;
+
+    const planDevolucion = new Map();
+    for (const it of pedido.items) {
+      if (it?.id && Number(it?.cantidad) > 0) {
+        const cant = Number(it.cantidad);
+        const entrada = planDevolucion.get(it.id) || { total: 0, porTalle: new Map() };
+        entrada.total += cant;
+        if (it.talle) {
+          entrada.porTalle.set(it.talle, (entrada.porTalle.get(it.talle) || 0) + cant);
+        }
+        planDevolucion.set(it.id, entrada);
+      }
+    }
+
+    for (const [productId, info] of planDevolucion.entries()) {
+      const prodRef = doc(db, 'comercios', storeId, 'productos', productId);
+      try {
+        const snap = await getDoc(prodRef);
+        if (!snap.exists()) continue;
+        const dataProd = snap.data();
+        if (dataProd.disponibilidad !== 'con_stock') continue;
+
+        if (
+          dataProd.stockPorTalle &&
+          typeof dataProd.stockPorTalle === 'object' &&
+          info.porTalle.size > 0
+        ) {
+          const restauradoPorTalle = { ...dataProd.stockPorTalle };
+          let sumaTotal = 0;
+
+          for (const [claveTalle, valorActual] of Object.entries(restauradoPorTalle)) {
+            const sumar = info.porTalle.get(claveTalle) || 0;
+            const nuevoValor = Math.max(0, (Number(valorActual) || 0) + sumar);
+            restauradoPorTalle[claveTalle] = nuevoValor;
+            sumaTotal += nuevoValor;
+          }
+
+          await updateDoc(prodRef, {
+            stockPorTalle: restauradoPorTalle,
+            stock: sumaTotal
+          });
+          setProductos((prev) =>
+            prev.map((p) =>
+              p.id === productId
+                ? { ...p, stockPorTalle: restauradoPorTalle, stock: sumaTotal }
+                : p
+            )
+          );
+        } else if (dataProd.stock !== null && dataProd.stock !== undefined) {
+          const stockActual = Math.max(0, Number(dataProd.stock) || 0);
+          const nuevoStock = stockActual + info.total;
+          await updateDoc(prodRef, { stock: nuevoStock });
+          setProductos((prev) =>
+            prev.map((p) => (p.id === productId ? { ...p, stock: nuevoStock } : p))
+          );
+        }
+      } catch (err) {
+        console.warn('No se pudo devolver el stock del producto:', productId, err);
+      }
+    }
+  };
+
+  const handleActualizarEstadoPedido = async (pedido, nuevoEstado) => {
+    if (!storeId || !pedido?.id) return;
+    const estadoAnterior = pedido.estado || (pedido.atendido ? 'vendido' : 'pendiente');
+    const estadoFinal = estadoAnterior === nuevoEstado ? 'pendiente' : nuevoEstado;
+
+    try {
+      await updateDoc(doc(db, 'comercios', storeId, 'pedidos', pedido.id), {
+        estado: estadoFinal,
+        atendido: estadoFinal === 'vendido',
+        actualizadoEn: serverTimestamp()
+      });
+
+      if (estadoAnterior !== 'rechazado' && estadoFinal === 'rechazado') {
+        await devolverStockPorPedidoRechazado(pedido);
+      }
+
+      setPedidosRecientes((prev) =>
+        prev.map((p) =>
+          p.id === pedido.id
+            ? { ...p, estado: estadoFinal, atendido: estadoFinal === 'vendido' }
+            : p
+        )
+      );
+    } catch (error) {
+      console.error('Error al actualizar estado del pedido:', error);
+    }
+  };
 
   const handleSeleccionarTema = async (nuevoTemaId) => {
     setColorTema(nuevoTemaId);
@@ -409,6 +809,24 @@ export const Home = ({ vistaAdmin }) => {
 
   const handleEditarProducto = (product) => {
     const imgsPrevias = obtenerImagenesProducto(product);
+    const esRelampago = esProductoRelampagoMarcado(product);
+    const esOutlet = esProductoOutlet(product);
+    const tipoPromoDetectado = esRelampago
+      ? 'relampago_contado'
+      : esOutlet
+      ? 'outlet'
+      : 'oferta';
+
+    const tallesPrevios =
+      Array.isArray(product.talles) && product.talles.length > 0 ? product.talles : [];
+    const mapaStockTalles = {};
+    for (const t of tallesPrevios) {
+      mapaStockTalles[t] =
+        product.stockPorTalle && product.stockPorTalle[t] !== undefined
+          ? String(product.stockPorTalle[t])
+          : '0';
+    }
+
     setAvisoProd('');
     setProductoEditandoId(product.id);
     setNuevoProd({
@@ -424,14 +842,33 @@ export const Home = ({ vistaAdmin }) => {
       imagenes: imgsPrevias,
       categoria:
         product.categoria || (filtroCat !== 'Todos' ? filtroCat : categoriasEditables[0] || ''),
-      etiqueta: product.etiqueta || 'OFERTA',
-      usaTalles: Boolean(
-        product.usaTalles || (Array.isArray(product.talles) && product.talles.length > 0)
-      ),
-      tallesInput:
-        Array.isArray(product.talles) && product.talles.length > 0
-          ? product.talles.join(', ')
+      tipoPromo: tipoPromoDetectado,
+      etiqueta:
+        tipoPromoDetectado === 'relampago_contado'
+          ? 'RELÁMPAGO · CONTADO'
+          : tipoPromoDetectado === 'outlet'
+          ? 'OUTLET'
+          : product.etiqueta || 'OFERTA',
+      soloContado: tipoPromoDetectado === 'relampago_contado',
+      precioRelampago:
+        product.precioRelampago !== undefined && product.precioRelampago !== null
+          ? String(product.precioRelampago)
           : '',
+      precioOutlet:
+        product.precioOutlet !== undefined && product.precioOutlet !== null
+          ? String(product.precioOutlet)
+          : '',
+      motivoOutlet: product.motivoOutlet || '',
+      disponibilidad:
+        product.disponibilidad === 'con_stock' || product.disponibilidad === 'por_pedido'
+          ? product.disponibilidad
+          : 'normal',
+      stock:
+        product.stock !== undefined && product.stock !== null ? String(product.stock) : '',
+      stockPorTalle: mapaStockTalles,
+      demoraPedido: product.demoraPedido || '',
+      usaTalles: Boolean(product.usaTalles || tallesPrevios.length > 0),
+      tallesInput: tallesPrevios.length > 0 ? tallesPrevios.join(', ') : '',
       descripcion: product.descripcion || '',
       fichaMarca: obtenerValorFicha(product.fichaTecnica, 'Marca'),
       fichaMaterial: obtenerValorFicha(product.fichaTecnica, 'Material'),
@@ -476,7 +913,6 @@ export const Home = ({ vistaAdmin }) => {
     }
   };
 
-  // Manejadores de campos técnicos editables extra (litros, capacidad, voltaje, etc.)
   const handleAgregarCampoExtra = () => {
     setNuevoProd((prev) => ({
       ...prev,
@@ -503,7 +939,6 @@ export const Home = ({ vistaAdmin }) => {
     }));
   };
 
-  // Permite cargar hasta 3 imágenes comprimidas en el navegador (máximo 3 en total)
   const handleImagenesChange = async (e) => {
     const archivosSeleccionados = Array.from(e.target.files || []);
     if (archivosSeleccionados.length === 0) return;
@@ -570,15 +1005,8 @@ export const Home = ({ vistaAdmin }) => {
         nuevoProd.categoria ||
         (filtroCat !== 'Todos' ? filtroCat : categoriasEditables[0] || 'General');
 
-      // Convertimos el texto escrito a mano ("S, M, L") en un array limpio ['S', 'M', 'L']
-      const arrayTalles = nuevoProd.usaTalles
-        ? nuevoProd.tallesInput
-            .split(',')
-            .map((t) => t.trim())
-            .filter(Boolean)
-        : [];
+      const arrayTalles = nuevoProd.usaTalles ? parsearTallesTexto(nuevoProd.tallesInput) : [];
 
-      // Armamos la ficha técnica básica combinando campos rápidos y campos extra editables
       const fichaTecnica = [];
       if (nuevoProd.fichaMarca.trim()) {
         fichaTecnica.push({ clave: 'Marca', valor: nuevoProd.fichaMarca.trim() });
@@ -597,6 +1025,41 @@ export const Home = ({ vistaAdmin }) => {
         }
       }
 
+      const tipoPromo = nuevoProd.tipoPromo || 'oferta';
+      const soloContado = tipoPromo === 'relampago_contado';
+      const etiquetaFinal =
+        tipoPromo === 'relampago_contado'
+          ? 'RELÁMPAGO · CONTADO'
+          : tipoPromo === 'outlet'
+          ? 'OUTLET'
+          : 'OFERTA';
+
+      const disponibilidad =
+        nuevoProd.disponibilidad === 'con_stock' || nuevoProd.disponibilidad === 'por_pedido'
+          ? nuevoProd.disponibilidad
+          : 'normal';
+
+      let stockPorTalleFinal = null;
+      let stockNumerico = null;
+
+      if (disponibilidad === 'con_stock') {
+        if (nuevoProd.usaTalles && arrayTalles.length > 0) {
+          stockPorTalleFinal = {};
+          let sumaTalles = 0;
+          for (const t of arrayTalles) {
+            const cantT = Math.max(0, Number(nuevoProd.stockPorTalle?.[t]) || 0);
+            stockPorTalleFinal[t] = cantT;
+            sumaTalles += cantT;
+          }
+          stockNumerico = sumaTalles;
+        } else {
+          stockNumerico = Math.max(0, Number(nuevoProd.stock) || 0);
+        }
+      }
+
+      const demoraPedido =
+        disponibilidad === 'por_pedido' ? (nuevoProd.demoraPedido || '').trim() : '';
+
       const baseImagenes =
         listaImagenes.length > 0 ? listaImagenes : [nuevoProd.imagen].filter(Boolean);
 
@@ -609,7 +1072,19 @@ export const Home = ({ vistaAdmin }) => {
         imagenes: imgs,
         descripcion: nuevoProd.descripcion.trim(),
         fichaTecnica,
-        etiqueta: nuevoProd.etiqueta,
+        tipoPromo,
+        enRelampago: tipoPromo === 'relampago_contado',
+        enOutlet: tipoPromo === 'outlet',
+        etiqueta: etiquetaFinal,
+        soloContado,
+        precioRelampago:
+          tipoPromo === 'relampago_contado' ? Number(nuevoProd.precioRelampago) || 0 : null,
+        precioOutlet: tipoPromo === 'outlet' ? Number(nuevoProd.precioOutlet) || 0 : null,
+        motivoOutlet: tipoPromo === 'outlet' ? (nuevoProd.motivoOutlet || '').trim() : '',
+        disponibilidad,
+        stock: stockNumerico,
+        stockPorTalle: stockPorTalleFinal,
+        demoraPedido,
         usaTalles: nuevoProd.usaTalles,
         talles: arrayTalles
       });
@@ -663,12 +1138,19 @@ export const Home = ({ vistaAdmin }) => {
     }
   };
 
-  const productosFiltrados =
-    filtroCat === 'Todos'
-      ? productos
-      : productos.filter(
-          (p) => p.categoria?.trim().toLowerCase() === filtroCat.trim().toLowerCase()
-        );
+  const baseFiltrada = productos.filter((p) => {
+    const pasaCategoria =
+      filtroCat === 'Todos' ||
+      p.categoria?.trim().toLowerCase() === filtroCat.trim().toLowerCase();
+    const pasaBusqueda = coincideConBusqueda(p, busqueda);
+    return pasaCategoria && pasaBusqueda;
+  });
+
+  const productosRelampago = relampagoActivo
+    ? baseFiltrada.filter((p) => esProductoRelampagoMarcado(p))
+    : [];
+  const productosOutlet = baseFiltrada.filter((p) => esProductoOutlet(p));
+  const productosCatalogo = baseFiltrada;
 
   const nombreComercioMostrar =
     comercioGuardado.name || comercioGuardado.nombreComercio || 'Mi Tienda';
@@ -679,12 +1161,16 @@ export const Home = ({ vistaAdmin }) => {
   const slidesCarrusel =
     imagenesCarruselActual.length > 0 ? imagenesCarruselActual : [BANNER_POR_DEFECTO];
 
+  const tallesFormularioActuales = nuevoProd.usaTalles
+    ? parsearTallesTexto(nuevoProd.tallesInput)
+    : [];
+
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 min-w-0">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 min-w-0 space-y-6">
       {/* Banner del Comercio */}
       <section
         aria-label={`Banner de ${nombreComercioMostrar}`}
-        className="relative w-full h-36 sm:h-52 md:h-60 rounded-3xl overflow-hidden bg-slate-900 border border-slate-200 shadow-xs mb-4 sm:mb-6"
+        className="relative w-full h-36 sm:h-52 md:h-60 rounded-3xl overflow-hidden bg-slate-900 border border-slate-200 shadow-xs"
       >
         <img
           src={bannerSrc}
@@ -716,7 +1202,7 @@ export const Home = ({ vistaAdmin }) => {
         </div>
       </section>
 
-      {/* Pasamos vistaAdmin, el tema del comercio y eliminar categoría */}
+      {/* Navegación de Categorías */}
       <CategoryNav
         categorias={categoriasParaNav}
         categoriaSeleccionada={filtroCat}
@@ -727,9 +1213,35 @@ export const Home = ({ vistaAdmin }) => {
         tema={tema}
       />
 
+      {/* Buscador Aislado por Comercio */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-3.5 sm:p-4 shadow-xs min-w-0">
+        <div className="relative flex items-center">
+          <i
+            className={`bx bx-search text-lg absolute left-3.5 pointer-events-none ${tema.loaderTexto}`}
+          ></i>
+          <input
+            type="text"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder={`Buscar en ${nombreComercioMostrar} (nombre, marca, ficha técnica)...`}
+            className={`w-full bg-slate-50 border border-slate-200 rounded-2xl pl-10 pr-9 py-2.5 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-2 outline-none transition-all ${tema.inputFoco}`}
+          />
+          {busqueda && (
+            <button
+              type="button"
+              onClick={() => setBusqueda('')}
+              aria-label="Limpiar búsqueda"
+              className="absolute right-2.5 w-6 h-6 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-black flex items-center justify-center cursor-pointer"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      </div>
+
       {vistaAdmin && (
         <div
-          className={`bg-white border-2 ${tema.bordeDestacado} rounded-3xl p-4 sm:p-5 mb-6 shadow-xl shadow-slate-200/50 flex flex-col gap-4 text-slate-800`}
+          className={`bg-white border-2 ${tema.bordeDestacado} rounded-3xl p-4 sm:p-5 shadow-xl shadow-slate-200/50 flex flex-col gap-4 text-slate-800`}
         >
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-center gap-3 w-full md:w-auto min-w-0">
@@ -764,7 +1276,47 @@ export const Home = ({ vistaAdmin }) => {
             </button>
           </div>
 
-          {/* Selector de Tema por Comercio (Esmeralda por defecto + opciones femeninas y variadas) */}
+          {/* Temporizador Oferta Relámpago (Solo de Contado) */}
+          <form
+            onSubmit={handleIniciarRelampago}
+            className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-orange-800 bg-orange-50 border border-orange-200 px-2.5 py-1 rounded-xl">
+                🔥 Tiempo Oferta Relámpago:
+              </span>
+              <input
+                type="number"
+                step="0.5"
+                min="0.5"
+                max="72"
+                value={horasRelampagoInput}
+                onChange={(e) => setHorasRelampagoInput(e.target.value)}
+                className="w-20 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-black text-slate-800 outline-none"
+              />
+              <span className="text-xs font-bold text-slate-500">hs</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="submit"
+                className="bg-orange-600 hover:bg-orange-700 text-white font-black px-3.5 py-1.5 rounded-xl text-[11px] uppercase tracking-wider cursor-pointer"
+              >
+                {relampagoActivo ? `Reiniciar (${tiempoRestanteRelampago})` : 'Activar Cuenta'}
+              </button>
+              {relampagoActivo && (
+                <button
+                  type="button"
+                  onClick={handleFinalizarRelampago}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black px-3 py-1.5 rounded-xl text-[11px] uppercase tracking-wider cursor-pointer border border-slate-200"
+                >
+                  Ocultar ya
+                </button>
+              )}
+            </div>
+          </form>
+
+          {/* Selector de Tema por Comercio */}
           <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
@@ -801,6 +1353,91 @@ export const Home = ({ vistaAdmin }) => {
               })}
             </div>
           </div>
+
+          {/* Estados Vendido / Rechazado de pedidos recibidos por WhatsApp */}
+          {pedidosRecientes.length > 0 && (
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-600">
+                  Pedidos enviados por WhatsApp ({pedidosRecientes.length})
+                </span>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  Marcá si quedó Vendido o Rechazado
+                </span>
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                {pedidosRecientes.slice(0, 10).map((ped) => {
+                  const estadoActual = ped.estado || (ped.atendido ? 'vendido' : 'pendiente');
+                  const esVendido = estadoActual === 'vendido';
+                  const esRechazado = estadoActual === 'rechazado';
+
+                  return (
+                    <div
+                      key={ped.id}
+                      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-2xl border px-3 py-2 text-xs ${
+                        esVendido
+                          ? 'bg-emerald-50/70 border-emerald-200 text-slate-800'
+                          : esRechazado
+                          ? 'bg-rose-50/70 border-rose-200 text-slate-600'
+                          : 'bg-slate-50 border-slate-200 text-slate-800'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="font-black truncate">
+                            {ped.clienteNombre || 'Cliente'} ·{' '}
+                            <span className="font-bold text-slate-700">
+                              ${Number(ped.total || 0).toLocaleString('es-AR')}
+                            </span>
+                          </p>
+                          {esVendido && (
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                              Vendido
+                            </span>
+                          )}
+                          {esRechazado && (
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-600 text-white">
+                              Rechazado
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                          {(ped.items || [])
+                            .map((it) => `${it.cantidad}x ${it.nombre}`)
+                            .join(', ')}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleActualizarEstadoPedido(ped, 'vendido')}
+                          className={`px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer border transition-colors ${
+                            esVendido
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                              : 'bg-white hover:bg-emerald-50 text-emerald-800 border-emerald-200'
+                          }`}
+                        >
+                          Vendido
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleActualizarEstadoPedido(ped, 'rechazado')}
+                          className={`px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer border transition-colors ${
+                            esRechazado
+                              ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
+                              : 'bg-white hover:bg-rose-50 text-rose-700 border-rose-200'
+                          }`}
+                        >
+                          Rechazado
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -833,38 +1470,278 @@ export const Home = ({ vistaAdmin }) => {
             + Crear Primera Categoría
           </button>
         </div>
-      ) : productosFiltrados.length === 0 ? (
-        <div className="text-center py-16 bg-white backdrop-blur-md rounded-3xl border border-slate-200 p-6 shadow-sm">
-          <p className="text-slate-700 font-bold text-sm">
-            No hay productos cargados en la categoría &ldquo;{filtroCat}&rdquo;.
-          </p>
-          {vistaAdmin && (
-            <button
-              type="button"
-              onClick={handleAbrirModalProducto}
-              className={`mt-3 px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider shadow cursor-pointer ${tema.botonPrimario}`}
-            >
-              + Cargar el primer producto aquí
-            </button>
-          )}
-        </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4 min-w-0">
-          {productosFiltrados.map((product) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              vistaAdmin={vistaAdmin}
-              tema={tema}
-              onEditProduct={handleEditarProducto}
-              onDeleteProduct={handleEliminarProducto}
-              onImageClick={handleAbrirCarrusel}
-            />
-          ))}
+        <div className="space-y-8">
+          {/* Sección Fuego: Oferta Relámpago (Solo de Contado) - Desaparece automáticamente al vencer el tiempo */}
+          {relampagoActivo && productosRelampago.length > 0 && (
+            <section className="bg-orange-50/70 border-2 border-orange-300 rounded-3xl p-4 sm:p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="bg-orange-600 text-white text-xs font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-xs">
+                  🔥 Oferta Relámpago · Solo de Contado
+                </span>
+                <span className="font-mono text-xs sm:text-sm font-black bg-slate-900 text-orange-300 px-3 py-1 rounded-xl">
+                  Termina en: {tiempoRestanteRelampago}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4 min-w-0">
+                {productosRelampago.map((product) => (
+                  <ProductCard
+                    key={`relampago-${product.id}`}
+                    product={product}
+                    vistaAdmin={vistaAdmin}
+                    relampagoActivo={relampagoActivo}
+                    modoSeccion="relampago"
+                    tema={tema}
+                    onEditProduct={handleEditarProducto}
+                    onDeleteProduct={handleEliminarProducto}
+                    onToggleOutlet={handleToggleOutlet}
+                    onToggleRelampago={handleToggleRelampago}
+                    onTogglePorPedido={handleTogglePorPedido}
+                    onImageClick={handleAbrirCarrusel}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Sección Outlet en la misma pantalla */}
+          {productosOutlet.length > 0 && (
+            <section className="bg-white border-2 border-slate-200 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xs">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900 flex items-center gap-2">
+                  <span>🏷️ Outlet</span>
+                </h2>
+                <span className="text-[11px] font-bold text-slate-500">
+                  {productosOutlet.length} {productosOutlet.length === 1 ? 'producto' : 'productos'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4 min-w-0">
+                {productosOutlet.map((product) => (
+                  <ProductCard
+                    key={`outlet-${product.id}`}
+                    product={product}
+                    vistaAdmin={vistaAdmin}
+                    relampagoActivo={relampagoActivo}
+                    modoSeccion="outlet"
+                    tema={tema}
+                    onEditProduct={handleEditarProducto}
+                    onDeleteProduct={handleEliminarProducto}
+                    onToggleOutlet={handleToggleOutlet}
+                    onToggleRelampago={handleToggleRelampago}
+                    onTogglePorPedido={handleTogglePorPedido}
+                    onImageClick={handleAbrirCarrusel}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Catálogo General / Filtrado */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900">
+                {filtroCat === 'Todos' ? 'Todos los Productos' : `Categoría: ${filtroCat}`}
+              </h2>
+              <span className="text-[11px] font-bold text-slate-500">
+                {productosCatalogo.length}{' '}
+                {productosCatalogo.length === 1 ? 'resultado' : 'resultados'}
+              </span>
+            </div>
+
+            {productosCatalogo.length === 0 ? (
+              <div className="text-center py-16 bg-white backdrop-blur-md rounded-3xl border border-slate-200 p-6 shadow-sm">
+                <p className="text-slate-700 font-bold text-sm">
+                  {busqueda.trim()
+                    ? `No se encontraron productos para "${busqueda.trim()}" en ${nombreComercioMostrar}.`
+                    : `No hay productos cargados en la categoría "${filtroCat}".`}
+                </p>
+                {vistaAdmin && !busqueda.trim() && (
+                  <button
+                    type="button"
+                    onClick={handleAbrirModalProducto}
+                    className={`mt-3 px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider shadow cursor-pointer ${tema.botonPrimario}`}
+                  >
+                    + Cargar el primer producto aquí
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4 min-w-0">
+                {productosCatalogo.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    vistaAdmin={vistaAdmin}
+                    relampagoActivo={relampagoActivo}
+                    modoSeccion="general"
+                    tema={tema}
+                    onEditProduct={handleEditarProducto}
+                    onDeleteProduct={handleEliminarProducto}
+                    onToggleOutlet={handleToggleOutlet}
+                    onToggleRelampago={handleToggleRelampago}
+                    onTogglePorPedido={handleTogglePorPedido}
+                    onImageClick={handleAbrirCarrusel}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
         </div>
       )}
 
-      {/* Modal Carrusel Ampliado con Transición Suave de Desvanecimiento */}
+      {/* Modal Rápido: Configurar Precio Momentáneo de Oferta Relámpago */}
+      {modalRelampagoProd && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-2 border-orange-300 relative">
+            <button
+              type="button"
+              onClick={() => setModalRelampagoProd(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm cursor-pointer"
+            >
+              ✕
+            </button>
+
+            <span className="text-[10px] font-black tracking-widest uppercase px-2.5 py-1 rounded-full bg-orange-100 text-orange-800 border border-orange-200">
+              🔥 Oferta Relámpago · Solo de Contado
+            </span>
+            <h3 className="text-lg font-black text-slate-900 mt-2">
+              {modalRelampagoProd.nombre}
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Precio normal actual:{' '}
+              <strong className="text-slate-800">
+                $
+                {Number(
+                  modalRelampagoProd.precioOferta || modalRelampagoProd.precio || 0
+                ).toLocaleString('es-AR')}
+              </strong>
+            </p>
+
+            <form
+              onSubmit={handleConfirmarRelampago}
+              className="space-y-4 mt-4 text-xs font-bold text-slate-600"
+            >
+              <div>
+                <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">
+                  ¿A qué precio momentáneo querés ponerlo? ($)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  autoFocus
+                  value={precioRelampagoInput}
+                  onChange={(e) => setPrecioRelampagoInput(e.target.value)}
+                  placeholder="Ej: 19900"
+                  className="w-full bg-orange-50/50 border border-orange-300 rounded-2xl px-4 py-3 text-base font-black text-slate-900 focus:bg-white focus:ring-2 focus:ring-orange-200 outline-none"
+                />
+              </div>
+
+              {!relampagoActivo && (
+                <div>
+                  <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">
+                    Duración de la oferta relámpago (horas)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    max="72"
+                    required
+                    value={horasModalRelampago}
+                    onChange={(e) => setHorasModalRelampago(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm font-black text-slate-800 outline-none"
+                  />
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={guardandoRapido}
+                className="w-full bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-black py-3.5 rounded-2xl text-xs uppercase tracking-wider shadow-lg cursor-pointer"
+              >
+                {guardandoRapido ? 'Activando...' : '🔥 Activar Oferta Relámpago'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Rápido: Configurar Rebaja y Motivo de Outlet */}
+      {modalOutletProd && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative">
+            <button
+              type="button"
+              onClick={() => setModalOutletProd(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm cursor-pointer"
+            >
+              ✕
+            </button>
+
+            <span className="text-[10px] font-black tracking-widest uppercase px-2.5 py-1 rounded-full bg-slate-900 text-amber-300">
+              🏷️ Enviar a Outlet
+            </span>
+            <h3 className="text-lg font-black text-slate-900 mt-2">{modalOutletProd.nombre}</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Precio normal:{' '}
+              <strong className="text-slate-800">
+                $
+                {Number(
+                  modalOutletProd.precioOferta || modalOutletProd.precio || 0
+                ).toLocaleString('es-AR')}
+              </strong>
+            </p>
+
+            <form
+              onSubmit={handleConfirmarOutlet}
+              className="space-y-4 mt-4 text-xs font-bold text-slate-600"
+            >
+              <div>
+                <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">
+                  Precio de rebaja en Outlet ($)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  autoFocus
+                  value={precioOutletInput}
+                  onChange={(e) => setPrecioOutletInput(e.target.value)}
+                  placeholder="Ej: 15000"
+                  className={`w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-base font-black text-slate-900 focus:bg-white focus:ring-2 outline-none ${tema.inputFoco}`}
+                />
+              </div>
+
+              <div>
+                <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">
+                  Motivo / detalle (rayado, caja dañada, último talle, etc.)
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  value={motivoOutletInput}
+                  onChange={(e) => setMotivoOutletInput(e.target.value)}
+                  placeholder="Ej: Pequeño detalle estético en el lateral / Caja abierta"
+                  className={`w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs text-slate-800 font-normal placeholder-slate-400 focus:bg-white focus:ring-2 outline-none resize-none ${tema.inputFoco}`}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={guardandoRapido}
+                className={`w-full disabled:opacity-60 font-black py-3.5 rounded-2xl text-xs uppercase tracking-wider shadow-lg cursor-pointer ${tema.botonPrimario}`}
+              >
+                {guardandoRapido ? 'Guardando...' : '🏷️ Publicar en Outlet'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Carrusel Ampliado */}
       {carruselProducto && (
         <div
           onClick={handleCerrarCarrusel}
@@ -931,7 +1808,6 @@ export const Home = ({ vistaAdmin }) => {
               )}
             </div>
 
-            {/* Miniaturas del carrusel (hasta 3) */}
             {slidesCarrusel.length > 1 && (
               <div className="flex items-center justify-center gap-2.5 mt-4">
                 {slidesCarrusel.map((imgUrl, idx) => (
@@ -987,7 +1863,6 @@ export const Home = ({ vistaAdmin }) => {
               </h3>
             </div>
 
-            {/* Ayudita de medidas recomendadas para el comerciante */}
             <div
               className={`border rounded-2xl p-3 mb-4 text-[11px] leading-relaxed ${tema.panelTalles}`}
             >
@@ -1156,7 +2031,142 @@ export const Home = ({ vistaAdmin }) => {
                 />
               </div>
 
-              {/* 🟢 CHECK DE HABILITACIÓN DE TALLES */}
+              <div>
+                <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">
+                  Sección / Tipo de Promoción
+                </label>
+                <select
+                  value={nuevoProd.tipoPromo}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setNuevoProd((prev) => ({
+                      ...prev,
+                      tipoPromo: val,
+                      soloContado: val === 'relampago_contado',
+                      etiqueta:
+                        val === 'relampago_contado'
+                          ? 'RELÁMPAGO · CONTADO'
+                          : val === 'outlet'
+                          ? 'OUTLET'
+                          : 'OFERTA'
+                    }));
+                  }}
+                  className={`w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 font-normal focus:bg-white focus:ring-2 outline-none transition-all ${tema.inputFoco}`}
+                >
+                  <option value="oferta">Oferta Estándar</option>
+                  <option value="outlet">🏷️ Outlet (con rebaja y motivo)</option>
+                  <option value="relampago_contado">
+                    🔥 Oferta Relámpago (Solo de Contado)
+                  </option>
+                </select>
+              </div>
+
+              {nuevoProd.tipoPromo === 'relampago_contado' && (
+                <div className="bg-orange-50 border border-orange-200 rounded-2xl p-3">
+                  <label className="block uppercase tracking-wider mb-1 text-[10px] text-orange-900">
+                    Precio momentáneo Relámpago ($)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={nuevoProd.precioRelampago}
+                    onChange={(e) =>
+                      setNuevoProd({ ...nuevoProd, precioRelampago: e.target.value })
+                    }
+                    placeholder="Ej: 19900"
+                    className="w-full bg-white border border-orange-300 rounded-xl px-3 py-2 text-xs text-slate-900 font-black outline-none"
+                  />
+                </div>
+              )}
+
+              {nuevoProd.tipoPromo === 'outlet' && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 space-y-2">
+                  <div>
+                    <label className="block uppercase tracking-wider mb-1 text-[10px] text-amber-900">
+                      Precio de rebaja Outlet ($)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={nuevoProd.precioOutlet}
+                      onChange={(e) =>
+                        setNuevoProd({ ...nuevoProd, precioOutlet: e.target.value })
+                      }
+                      placeholder="Ej: 15000"
+                      className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs text-slate-900 font-black outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block uppercase tracking-wider mb-1 text-[10px] text-amber-900">
+                      Motivo de Outlet (rayado, caja dañada, etc.)
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={nuevoProd.motivoOutlet}
+                      onChange={(e) =>
+                        setNuevoProd({ ...nuevoProd, motivoOutlet: e.target.value })
+                      }
+                      placeholder="Ej: Pequeña raya en lateral"
+                      className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs text-slate-800 font-normal outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-2.5">
+                <label className="block uppercase tracking-wider text-[10px] text-slate-600">
+                  Disponibilidad / Stock (Opcional)
+                </label>
+                <select
+                  value={nuevoProd.disponibilidad}
+                  onChange={(e) =>
+                    setNuevoProd({ ...nuevoProd, disponibilidad: e.target.value })
+                  }
+                  className={`w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium outline-none ${tema.inputFoco}`}
+                >
+                  <option value="normal">Disponible (sin contador de stock)</option>
+                  <option value="con_stock">Control de Stock numérico (descuenta al comprar)</option>
+                  <option value="por_pedido">Por Pedido (etiqueta 📦 Por Pedido)</option>
+                </select>
+
+                {nuevoProd.disponibilidad === 'con_stock' && !nuevoProd.usaTalles && (
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">
+                      Unidades disponibles:
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      required
+                      value={nuevoProd.stock}
+                      onChange={(e) => setNuevoProd({ ...nuevoProd, stock: e.target.value })}
+                      placeholder="Ej: 10"
+                      className={`w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium outline-none ${tema.inputFoco}`}
+                    />
+                  </div>
+                )}
+
+                {nuevoProd.disponibilidad === 'por_pedido' && (
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">
+                      Demora estimada (opcional):
+                    </label>
+                    <input
+                      type="text"
+                      value={nuevoProd.demoraPedido}
+                      onChange={(e) =>
+                        setNuevoProd({ ...nuevoProd, demoraPedido: e.target.value })
+                      }
+                      placeholder="Ej: 48 hs / A coordinar"
+                      className={`w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium outline-none ${tema.inputFoco}`}
+                    />
+                  </div>
+                )}
+              </div>
+
               <div className={`border rounded-2xl p-3 space-y-2.5 ${tema.panelTalles}`}>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
@@ -1170,22 +2180,60 @@ export const Home = ({ vistaAdmin }) => {
                   </span>
                 </label>
 
-                {/* Si está marcado, mostramos el input para escribir los talles a mano */}
                 {nuevoProd.usaTalles && (
-                  <div className="pt-1">
-                    <label className="block text-[10px] uppercase font-bold mb-1">
-                      Escribí los talles separados por comas:
-                    </label>
-                    <input
-                      type="text"
-                      required={nuevoProd.usaTalles}
-                      value={nuevoProd.tallesInput}
-                      onChange={(e) =>
-                        setNuevoProd({ ...nuevoProd, tallesInput: e.target.value })
-                      }
-                      placeholder="Ej: S, M, L, XL o 39, 40, 41"
-                      className={`w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium placeholder-slate-400 focus:ring-2 outline-none transition-all ${tema.inputFoco}`}
-                    />
+                  <div className="pt-1 space-y-2.5">
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold mb-1">
+                        Escribí los talles separados por comas:
+                      </label>
+                      <input
+                        type="text"
+                        required={nuevoProd.usaTalles}
+                        value={nuevoProd.tallesInput}
+                        onChange={(e) =>
+                          setNuevoProd({ ...nuevoProd, tallesInput: e.target.value })
+                        }
+                        placeholder="Ej: S, M, L, XL o 39, 40, 41"
+                        className={`w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium placeholder-slate-400 focus:ring-2 outline-none transition-all ${tema.inputFoco}`}
+                      />
+                    </div>
+
+                    {nuevoProd.disponibilidad === 'con_stock' &&
+                      tallesFormularioActuales.length > 0 && (
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold mb-1">
+                            Stock por talle:
+                          </label>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {tallesFormularioActuales.map((t) => (
+                              <div
+                                key={t}
+                                className="bg-white border border-slate-200 rounded-xl p-2"
+                              >
+                                <span className="text-[10px] font-black text-slate-700 block">
+                                  Talle {t}
+                                </span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={nuevoProd.stockPorTalle?.[t] ?? ''}
+                                  onChange={(e) =>
+                                    setNuevoProd((prev) => ({
+                                      ...prev,
+                                      stockPorTalle: {
+                                        ...(prev.stockPorTalle || {}),
+                                        [t]: e.target.value
+                                      }
+                                    }))
+                                  }
+                                  placeholder="0"
+                                  className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-black text-slate-900 outline-none"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                   </div>
                 )}
               </div>
@@ -1207,7 +2255,7 @@ export const Home = ({ vistaAdmin }) => {
                 </div>
                 <div>
                   <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">
-                    Precio de Oferta ($)
+                    Precio Normal / Oferta ($)
                   </label>
                   <input
                     type="number"
@@ -1222,7 +2270,6 @@ export const Home = ({ vistaAdmin }) => {
                 </div>
               </div>
 
-              {/* Ficha Técnica Básica Editable */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="block text-[10px] uppercase font-black tracking-wider text-slate-700">
@@ -1325,7 +2372,6 @@ export const Home = ({ vistaAdmin }) => {
                 )}
               </div>
 
-              {/* Imágenes del Producto (Máximo 3) */}
               <div>
                 <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">
                   Imágenes del Producto ({cantidadImagenesActuales}/{MAX_IMAGENES_PRODUCTO} máx.)
