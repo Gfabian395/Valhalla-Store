@@ -996,7 +996,6 @@ export const Home = ({ vistaAdmin }) => {
     if (!storeId) return;
 
     const listaImagenes = (nuevoProd.imagenes || []).slice(0, MAX_IMAGENES_PRODUCTO);
-    if (listaImagenes.length === 0 && !nuevoProd.imagen) return;
 
     setGuardandoProd(true);
     setAvisoProd('');
@@ -1061,14 +1060,18 @@ export const Home = ({ vistaAdmin }) => {
         disponibilidad === 'por_pedido' ? (nuevoProd.demoraPedido || '').trim() : '';
 
       const baseImagenes =
-        listaImagenes.length > 0 ? listaImagenes : [nuevoProd.imagen].filter(Boolean);
+        listaImagenes.length > 0
+          ? listaImagenes
+          : nuevoProd.imagen
+          ? [nuevoProd.imagen]
+          : [BANNER_POR_DEFECTO];
 
       const armarPayload = (imgs) => ({
         nombre: nuevoProd.nombre.trim(),
         categoria: categoriaDestino.trim(),
         precioAnterior: Number(nuevoProd.precioAnterior) || 0,
         precioOferta: Number(nuevoProd.precioOferta) || 0,
-        imagen: imgs[0] || '',
+        imagen: imgs[0] || BANNER_POR_DEFECTO,
         imagenes: imgs,
         descripcion: nuevoProd.descripcion.trim(),
         fichaTecnica,
@@ -2374,13 +2377,12 @@ export const Home = ({ vistaAdmin }) => {
 
               <div>
                 <label className="block uppercase tracking-wider mb-1.5 text-[10px] text-slate-500">
-                  Imágenes del Producto ({cantidadImagenesActuales}/{MAX_IMAGENES_PRODUCTO} máx.)
+                  Imágenes del Producto (Opcional · {cantidadImagenesActuales}/{MAX_IMAGENES_PRODUCTO} máx.)
                 </label>
                 <input
                   type="file"
                   accept="image/*"
                   multiple
-                  required={cantidadImagenesActuales === 0 && !nuevoProd.imagen}
                   disabled={cantidadImagenesActuales >= MAX_IMAGENES_PRODUCTO}
                   onChange={handleImagenesChange}
                   className={`w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm text-slate-800 font-normal file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black disabled:opacity-60 cursor-pointer outline-none transition-all ${tema.fileBtn}`}
